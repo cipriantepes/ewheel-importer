@@ -156,6 +156,22 @@ The plugin uses **Action Scheduler** (background processing) to prevent timeouts
 ### Sync "stuck"
 If the process doesn't seem to be moving, check **WooCommerce > Status > Scheduled Actions**. If actions are "Pending", ensure your WP Cron is running.
 
+## Auto-Updates
+The plugin is configured to receive updates directly from **GitHub**.
+
+### Releasing an Update
+1.  **Bump Version**: Update the version number in `ewheel-importer.php` (e.g., `1.0.1`).
+2.  **Commit & Push**: Commit your changes and push to GitHub.
+3.  **Create Release**:
+    - Go to your GitHub Repository > Releases > Draft a new release.
+    - Tag version: `v1.0.1` (must match plugin header).
+    - Title: `v1.0.1` (or similar).
+    - Description: Add changelog notes here.
+    - **Asset**: Upload the ZIP file created by `bin/build-release.sh` as an asset (optional, PUC can also download the source zip, but the build script includes vendor/ dependencies which is safer).
+4.  **Publish Release**: Once published, all users with the plugin installed will see an update notification in WordPress.
+
+**Important**: Ensure the `GITHUB_REPO` constant in `ewheel-importer.php` matches your actual repository URL.
+
 ## Support
 
 For issues and feature requests, please create an issue on the GitHub repository.

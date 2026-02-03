@@ -1,8 +1,18 @@
 #!/bin/bash
 
-# Define plugin name and version
+# Define plugin name
 PLUGIN_SLUG="ewheel-importer"
-VERSION="1.0.0"
+MAIN_FILE="${PLUGIN_SLUG}.php"
+
+# Extract version from main plugin file (Single Source of Truth)
+VERSION=$(grep "Version:" "$MAIN_FILE" | awk '{print $NF}' | tr -d '\r')
+
+if [ -z "$VERSION" ]; then
+    echo "Error: Could not detect version from $MAIN_FILE"
+    exit 1
+fi
+
+echo "Detected version: $VERSION"
 ZIP_NAME="${PLUGIN_SLUG}.${VERSION}.zip"
 
 # Ensure clean state

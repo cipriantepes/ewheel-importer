@@ -39,6 +39,7 @@ use Trotibike\EwheelImporter\Factory\ServiceFactory;
 use Trotibike\EwheelImporter\Config\Configuration;
 use Trotibike\EwheelImporter\Container\ServiceContainer;
 use Trotibike\EwheelImporter\Admin\AdminPage;
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
 
 /**
  * Main plugin class.
@@ -47,6 +48,11 @@ use Trotibike\EwheelImporter\Admin\AdminPage;
  */
 final class Ewheel_Importer
 {
+    /**
+     * GitHub Repository URL.
+     * Replace this with your actual GitHub repository URL.
+     */
+    private const GITHUB_REPO = 'https://github.com/trotibike/ewheel-importer';
 
     /**
      * Single instance of the class.
@@ -95,6 +101,26 @@ final class Ewheel_Importer
         }
 
         $this->init_hooks();
+        $this->init_updater();
+    }
+
+    /**
+     * Initialize the update checker.
+     *
+     * @return void
+     */
+    private function init_updater(): void
+    {
+        if (class_exists(PucFactory::class)) {
+            $myUpdateChecker = PucFactory::buildUpdateChecker(
+                self::GITHUB_REPO,
+                EWHEEL_IMPORTER_FILE,
+                'ewheel-importer'
+            );
+
+            // Optional: Set the branch that contains the stable release.
+            $myUpdateChecker->getVcsApi()->enableReleaseAssets();
+        }
     }
 
     /**
