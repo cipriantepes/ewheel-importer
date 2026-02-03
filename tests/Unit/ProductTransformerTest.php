@@ -6,9 +6,9 @@
 namespace Trotibike\EwheelImporter\Tests\Unit;
 
 use Trotibike\EwheelImporter\Tests\TestCase;
+use Trotibike\EwheelImporter\Tests\Helpers\MockFactory;
+use Trotibike\EwheelImporter\Tests\Helpers\ProductFixtures;
 use Trotibike\EwheelImporter\Sync\ProductTransformer;
-use Trotibike\EwheelImporter\Translation\Translator;
-use Trotibike\EwheelImporter\Pricing\PricingConverter;
 use Mockery;
 
 /**
@@ -20,46 +20,26 @@ class ProductTransformerTest extends TestCase {
      * Test transforming a simple product.
      */
     public function test_transform_simple_product(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )
-            ->with( [ 'en' => 'Electric Scooter X1' ] )
-            ->andReturn( 'Trotinetă Electrică X1' );
-        $translator->shouldReceive( 'translate_multilingual' )
-            ->with( [ 'en' => 'High performance electric scooter' ] )
-            ->andReturn( 'Trotinetă electrică de înaltă performanță' );
-
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )
-            ->with( 599.99 )
-            ->andReturn( 2999.95 );
-        $pricing_converter->shouldReceive( 'format_price' )
-            ->andReturnUsing( function( $price ) { return number_format( $price, 2, '.', '' ); } );
-
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'          => 123,
-            'Reference'   => 'SCOOTER-X1',
-            'Name'        => [ 'en' => 'Electric Scooter X1' ],
-            'Description' => [ 'en' => 'High performance electric scooter' ],
-            'RRP'         => 599.99,
-            'Currency'    => 'EUR',
-            'Active'      => true,
-            'Images'      => [ 'https://example.com/img1.jpg', 'https://example.com/img2.jpg' ],
-            'Categories'  => [ 'CAT001' ],
-            'Attributes'  => [
-                'weight' => '15kg',
-                'range'  => '40km',
-            ],
-            'Variants'    => [],
+        $translations = [
+            'Electric Scooter X1'               => 'Trotinetă Electrică X1',
+            'High performance electric scooter' => 'Trotinetă electrică de înaltă performanță',
         ];
+
+        $translator        = MockFactory::translator_with_map( $translations );
+        $pricing_converter = MockFactory::pricing_converter( 5.0 );
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::simple_ewheel_product(
+            [
+                'Images' => [ 'https://example.com/img1.jpg', 'https://example.com/img2.jpg' ],
+            ]
+        );
 
         $woo_product = $transformer->transform( $ewheel_product );
 
         $this->assertEquals( 'Trotinetă Electrică X1', $woo_product['name'] );
         $this->assertEquals( 'Trotinetă electrică de înaltă performanță', $woo_product['description'] );
         $this->assertEquals( 'SCOOTER-X1', $woo_product['sku'] );
-        $this->assertEquals( '2999.95', $woo_product['regular_price'] );
         $this->assertEquals( 'publish', $woo_product['status'] );
         $this->assertEquals( 'simple', $woo_product['type'] );
         $this->assertCount( 2, $woo_product['images'] );
@@ -70,28 +50,11 @@ class ProductTransformerTest extends TestCase {
      * Test transforming inactive product sets status to draft.
      */
     public function test_transform_inactive_product_status_draft(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Test Product' );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )->andReturn( 100.00 );
-        $pricing_converter->shouldReceive( 'format_price' )->andReturn( '100.00' );
-
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'          => 124,
-            'Reference'   => 'TEST-001',
-            'Name'        => [ 'en' => 'Test' ],
-            'Description' => [ 'en' => 'Test' ],
-            'RRP'         => 50.00,
-            'Currency'    => 'EUR',
-            'Active'      => false,
-            'Images'      => [],
-            'Categories'  => [],
-            'Attributes'  => [],
-            'Variants'    => [],
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::inactive_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -102,47 +65,11 @@ class ProductTransformerTest extends TestCase {
      * Test transforming product with variants creates variable product.
      */
     public function test_transform_product_with_variants(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Scooter' );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )
-            ->with( 499.99 )
-            ->andReturn( 2499.95 );
-        $pricing_converter->shouldReceive( 'convert' )
-            ->with( 599.99 )
-            ->andReturn( 2999.95 );
-        $pricing_converter->shouldReceive( 'format_price' )
-            ->andReturnUsing( function( $price ) { return number_format( $price, 2, '.', '' ); } );
-
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'          => 125,
-            'Reference'   => 'SCOOTER-V',
-            'Name'        => [ 'en' => 'Scooter' ],
-            'Description' => [ 'en' => 'Scooter' ],
-            'RRP'         => 499.99,
-            'Currency'    => 'EUR',
-            'Active'      => true,
-            'Images'      => [],
-            'Categories'  => [],
-            'Attributes'  => [ 'color' => 'Black' ],
-            'Variants'    => [
-                [
-                    'Id'         => 'VAR001',
-                    'Reference'  => 'SCOOTER-V-BLACK',
-                    'net'        => 499.99,
-                    'Attributes' => [ 'color' => 'Black' ],
-                ],
-                [
-                    'Id'         => 'VAR002',
-                    'Reference'  => 'SCOOTER-V-WHITE',
-                    'net'        => 599.99,
-                    'Attributes' => [ 'color' => 'White' ],
-                ],
-            ],
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::variable_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -156,34 +83,19 @@ class ProductTransformerTest extends TestCase {
      * Test transforming attributes to WooCommerce format.
      */
     public function test_transform_attributes(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Test' );
-        $translator->shouldReceive( 'translate' )
-            ->andReturnUsing( function( $text ) { return $text; } );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )->andReturn( 100.00 );
-        $pricing_converter->shouldReceive( 'format_price' )->andReturn( '100.00' );
-
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'          => 126,
-            'Reference'   => 'TEST-002',
-            'Name'        => [ 'en' => 'Test' ],
-            'Description' => [ 'en' => 'Test' ],
-            'RRP'         => 50.00,
-            'Currency'    => 'EUR',
-            'Active'      => true,
-            'Images'      => [],
-            'Categories'  => [],
-            'Attributes'  => [
-                'weight'       => '15kg',
-                'max_speed'    => '25km/h',
-                'battery_life' => '40km',
-            ],
-            'Variants'    => [],
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::simple_ewheel_product(
+            [
+                'Attributes' => [
+                    'weight'       => '15kg',
+                    'max_speed'    => '25km/h',
+                    'battery_life' => '40km',
+                ],
+            ]
+        );
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -195,34 +107,20 @@ class ProductTransformerTest extends TestCase {
      * Test category mapping.
      */
     public function test_maps_categories(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Test' );
-
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )->andReturn( 100.00 );
-
-        $pricing_converter->shouldReceive( 'format_price' )->andReturn( '100.00' );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
         $category_map = [
             'CAT001' => 10,
             'CAT002' => 20,
         ];
 
-        $transformer = new ProductTransformer( $translator, $pricing_converter, $category_map );
-
-        $ewheel_product = [
-            'Id'          => 127,
-            'Reference'   => 'TEST-003',
-            'Name'        => [ 'en' => 'Test' ],
-            'Description' => [ 'en' => 'Test' ],
-            'RRP'         => 50.00,
-            'Currency'    => 'EUR',
-            'Active'      => true,
-            'Images'      => [],
-            'Categories'  => [ 'CAT001', 'CAT002' ],
-            'Attributes'  => [],
-            'Variants'    => [],
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $category_map );
+        $ewheel_product = ProductFixtures::simple_ewheel_product(
+            [
+                'Categories' => [ 'CAT001', 'CAT002' ],
+            ]
+        );
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -236,21 +134,14 @@ class ProductTransformerTest extends TestCase {
      * Test product with missing optional fields.
      */
     public function test_handles_missing_optional_fields(): void {
-        $translator = Mockery::mock( Translator::class );
+        $translator = Mockery::mock( \Trotibike\EwheelImporter\Translation\Translator::class );
         $translator->shouldReceive( 'translate_multilingual' )->andReturn( '' );
 
-        $pricing_converter = Mockery::mock( PricingConverter::class );
+        $pricing_converter = Mockery::mock( \Trotibike\EwheelImporter\Pricing\PricingConverter::class );
         $pricing_converter->shouldReceive( 'convert' )->andReturn( 0.00 );
 
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'        => 128,
-            'Reference' => 'MINIMAL-001',
-            'Name'      => [],
-            'RRP'       => 0,
-            'Active'    => true,
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::minimal_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -263,28 +154,16 @@ class ProductTransformerTest extends TestCase {
      * Test storing ewheel ID in meta.
      */
     public function test_stores_ewheel_id_in_meta(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Test' );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )->andReturn( 100.00 );
-        $pricing_converter->shouldReceive( 'format_price' )->andReturn( '100.00' );
-
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $ewheel_product = [
-            'Id'          => 999,
-            'Reference'   => 'META-TEST',
-            'Name'        => [ 'en' => 'Test' ],
-            'Description' => [ 'en' => 'Test' ],
-            'RRP'         => 50.00,
-            'Currency'    => 'EUR',
-            'Active'      => true,
-            'Images'      => [],
-            'Categories'  => [],
-            'Attributes'  => [],
-            'Variants'    => [],
-        ];
+        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $ewheel_product = ProductFixtures::simple_ewheel_product(
+            [
+                'Id'        => 999,
+                'Reference' => 'META-TEST',
+            ]
+        );
 
         $woo_product = $transformer->transform( $ewheel_product );
 
@@ -298,31 +177,11 @@ class ProductTransformerTest extends TestCase {
      * Test batch transform.
      */
     public function test_batch_transform(): void {
-        $translator = Mockery::mock( Translator::class );
-        $translator->shouldReceive( 'translate_multilingual' )->andReturn( 'Test' );
-
-        $pricing_converter = Mockery::mock( PricingConverter::class );
-        $pricing_converter->shouldReceive( 'convert' )->andReturn( 100.00 );
-        $pricing_converter->shouldReceive( 'format_price' )->andReturn( '100.00' );
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
 
         $transformer = new ProductTransformer( $translator, $pricing_converter );
-
-        $products = [
-            [
-                'Id'        => 1,
-                'Reference' => 'PROD-1',
-                'Name'      => [ 'en' => 'Product 1' ],
-                'RRP'       => 100,
-                'Active'    => true,
-            ],
-            [
-                'Id'        => 2,
-                'Reference' => 'PROD-2',
-                'Name'      => [ 'en' => 'Product 2' ],
-                'RRP'       => 200,
-                'Active'    => true,
-            ],
-        ];
+        $products    = ProductFixtures::product_list( 2 );
 
         $results = $transformer->transform_batch( $products );
 

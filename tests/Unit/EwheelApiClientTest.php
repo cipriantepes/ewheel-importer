@@ -6,8 +6,9 @@
 namespace Trotibike\EwheelImporter\Tests\Unit;
 
 use Trotibike\EwheelImporter\Tests\TestCase;
+use Trotibike\EwheelImporter\Tests\Helpers\MockFactory;
+use Trotibike\EwheelImporter\Tests\Helpers\ProductFixtures;
 use Trotibike\EwheelImporter\Api\EwheelApiClient;
-use Trotibike\EwheelImporter\Api\HttpClientInterface;
 use Mockery;
 
 /**
@@ -22,7 +23,7 @@ class EwheelApiClientTest extends TestCase {
         $this->expectException( \InvalidArgumentException::class );
         $this->expectExceptionMessage( 'API key is required' );
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         new EwheelApiClient( '', $http_client );
     }
 
@@ -30,20 +31,9 @@ class EwheelApiClientTest extends TestCase {
      * Test fetching categories successfully.
      */
     public function test_get_categories_returns_array(): void {
-        $mock_response = [
-            [
-                'reference'       => 'CAT001',
-                'name'            => 'Electric Scooters',
-                'parentReference' => null,
-            ],
-            [
-                'reference'       => 'CAT002',
-                'name'            => 'Accessories',
-                'parentReference' => 'CAT001',
-            ],
-        ];
+        $mock_response = ProductFixtures::category_list();
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -66,7 +56,7 @@ class EwheelApiClientTest extends TestCase {
      * Test fetching categories with pagination.
      */
     public function test_get_categories_with_pagination(): void {
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -89,26 +79,9 @@ class EwheelApiClientTest extends TestCase {
      * Test fetching products successfully.
      */
     public function test_get_products_returns_array(): void {
-        $mock_response = [
-            [
-                'Id'          => 123,
-                'Reference'   => 'PROD001',
-                'Name'        => [ 'en' => 'Electric Scooter X1' ],
-                'Description' => [ 'en' => 'High performance scooter' ],
-                'RRP'         => 599.99,
-                'Currency'    => 'EUR',
-                'Active'      => true,
-                'Images'      => [ 'https://example.com/img1.jpg' ],
-                'Categories'  => [ 'CAT001' ],
-                'Attributes'  => [
-                    'weight' => '15kg',
-                    'range'  => '40km',
-                ],
-                'Variants'    => [],
-            ],
-        ];
+        $mock_response = [ ProductFixtures::simple_ewheel_product( [ 'Reference' => 'PROD001' ] ) ];
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -131,7 +104,7 @@ class EwheelApiClientTest extends TestCase {
      * Test fetching products with filters.
      */
     public function test_get_products_with_filters(): void {
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -165,7 +138,7 @@ class EwheelApiClientTest extends TestCase {
     public function test_get_products_newer_than(): void {
         $since_date = '2024-01-15T10:30:00';
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -187,7 +160,7 @@ class EwheelApiClientTest extends TestCase {
      * Test API key is included in request headers.
      */
     public function test_api_key_included_in_headers(): void {
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
@@ -212,7 +185,7 @@ class EwheelApiClientTest extends TestCase {
         $this->expectException( \RuntimeException::class );
         $this->expectExceptionMessage( 'API request failed' );
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->once()
             ->andThrow( new \RuntimeException( 'API request failed' ) );
@@ -225,11 +198,11 @@ class EwheelApiClientTest extends TestCase {
      * Test fetching all products with pagination.
      */
     public function test_get_all_products_handles_pagination(): void {
-        $page1 = array_fill( 0, 50, [ 'Id' => 1, 'Reference' => 'PROD' ] );
-        $page2 = array_fill( 0, 50, [ 'Id' => 2, 'Reference' => 'PROD' ] );
-        $page3 = array_fill( 0, 25, [ 'Id' => 3, 'Reference' => 'PROD' ] ); // Less than page size = last page
+        $page1 = ProductFixtures::product_list( 50 );
+        $page2 = ProductFixtures::product_list( 50 );
+        $page3 = ProductFixtures::product_list( 25 ); // Less than page size = last page
 
-        $http_client = Mockery::mock( HttpClientInterface::class );
+        $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
             ->times( 3 )
             ->andReturn( $page1, $page2, $page3 );

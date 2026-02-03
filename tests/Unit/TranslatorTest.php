@@ -6,8 +6,8 @@
 namespace Trotibike\EwheelImporter\Tests\Unit;
 
 use Trotibike\EwheelImporter\Tests\TestCase;
+use Trotibike\EwheelImporter\Tests\Helpers\MockFactory;
 use Trotibike\EwheelImporter\Translation\Translator;
-use Trotibike\EwheelImporter\Translation\TranslationServiceInterface;
 use Mockery;
 
 /**
@@ -19,7 +19,7 @@ class TranslatorTest extends TestCase {
      * Test translating text from English to Romanian.
      */
     public function test_translate_from_english_to_romanian(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->with( 'Electric Scooter', 'en', 'ro' )
@@ -35,7 +35,7 @@ class TranslatorTest extends TestCase {
      * Test translating text from Spanish to Romanian.
      */
     public function test_translate_from_spanish_to_romanian(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->with( 'Patinete Eléctrico', 'es', 'ro' )
@@ -51,7 +51,7 @@ class TranslatorTest extends TestCase {
      * Test that empty text returns empty string without calling API.
      */
     public function test_empty_text_returns_empty_string(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
         $translator = new Translator( $translation_service, 'ro' );
@@ -64,7 +64,7 @@ class TranslatorTest extends TestCase {
      * Test that whitespace-only text returns empty string.
      */
     public function test_whitespace_text_returns_empty_string(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
         $translator = new Translator( $translation_service, 'ro' );
@@ -82,7 +82,7 @@ class TranslatorTest extends TestCase {
             'en' => 'Electric Scooter',
         ];
 
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->with( 'Electric Scooter', 'en', 'ro' )
@@ -102,7 +102,7 @@ class TranslatorTest extends TestCase {
             'es' => 'Patinete Eléctrico',
         ];
 
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->with( 'Patinete Eléctrico', 'es', 'ro' )
@@ -122,7 +122,7 @@ class TranslatorTest extends TestCase {
             'de' => 'Elektroroller',
         ];
 
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->with( 'Elektroroller', 'de', 'ro' )
@@ -138,7 +138,7 @@ class TranslatorTest extends TestCase {
      * Test empty multilingual object returns empty string.
      */
     public function test_empty_multilingual_object_returns_empty(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
         $translator = new Translator( $translation_service, 'ro' );
@@ -151,7 +151,7 @@ class TranslatorTest extends TestCase {
      * Test caching - same text should not be translated twice.
      */
     public function test_caches_translations(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once() // Only called once despite two translate calls
             ->with( 'Electric Scooter', 'en', 'ro' )
@@ -170,7 +170,7 @@ class TranslatorTest extends TestCase {
      * Test handling translation service errors.
      */
     public function test_handles_translation_error_gracefully(): void {
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate' )
             ->once()
             ->andThrow( new \RuntimeException( 'Translation API error' ) );
@@ -192,7 +192,7 @@ class TranslatorTest extends TestCase {
             'Battery life',
         ];
 
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         $translation_service->shouldReceive( 'translate_batch' )
             ->once()
             ->with( $texts, 'en', 'ro' )
@@ -220,7 +220,7 @@ class TranslatorTest extends TestCase {
         $this->expectException( \InvalidArgumentException::class );
         $this->expectExceptionMessage( 'Target language is required' );
 
-        $translation_service = Mockery::mock( TranslationServiceInterface::class );
+        $translation_service = MockFactory::translation_service();
         new Translator( $translation_service, '' );
     }
 }
