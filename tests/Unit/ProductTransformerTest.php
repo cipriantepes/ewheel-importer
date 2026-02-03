@@ -27,8 +27,9 @@ class ProductTransformerTest extends TestCase {
 
         $translator        = MockFactory::translator_with_map( $translations );
         $pricing_converter = MockFactory::pricing_converter( 5.0 );
+        $config            = MockFactory::configuration();
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::simple_ewheel_product(
             [
                 'Images' => [ 'https://example.com/img1.jpg', 'https://example.com/img2.jpg' ],
@@ -52,8 +53,9 @@ class ProductTransformerTest extends TestCase {
     public function test_transform_inactive_product_status_draft(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::inactive_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
@@ -67,8 +69,9 @@ class ProductTransformerTest extends TestCase {
     public function test_transform_product_with_variants(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::variable_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
@@ -85,8 +88,9 @@ class ProductTransformerTest extends TestCase {
     public function test_transform_attributes(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::simple_ewheel_product(
             [
                 'Attributes' => [
@@ -109,13 +113,14 @@ class ProductTransformerTest extends TestCase {
     public function test_maps_categories(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
         $category_map = [
             'CAT001' => 10,
             'CAT002' => 20,
         ];
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter, $category_map );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config, $category_map );
         $ewheel_product = ProductFixtures::simple_ewheel_product(
             [
                 'Categories' => [ 'CAT001', 'CAT002' ],
@@ -140,7 +145,9 @@ class ProductTransformerTest extends TestCase {
         $pricing_converter = Mockery::mock( \Trotibike\EwheelImporter\Pricing\PricingConverter::class );
         $pricing_converter->shouldReceive( 'convert' )->andReturn( 0.00 );
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $config = MockFactory::configuration();
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::minimal_ewheel_product();
 
         $woo_product = $transformer->transform( $ewheel_product );
@@ -156,8 +163,9 @@ class ProductTransformerTest extends TestCase {
     public function test_stores_ewheel_id_in_meta(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
-        $transformer    = new ProductTransformer( $translator, $pricing_converter );
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::simple_ewheel_product(
             [
                 'Id'        => 999,
@@ -179,8 +187,9 @@ class ProductTransformerTest extends TestCase {
     public function test_batch_transform(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
 
-        $transformer = new ProductTransformer( $translator, $pricing_converter );
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
         $products    = ProductFixtures::product_list( 2 );
 
         $results = $transformer->transform_batch( $products );

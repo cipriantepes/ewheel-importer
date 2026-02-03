@@ -13,6 +13,7 @@ use Trotibike\EwheelImporter\Translation\Translator;
 use Trotibike\EwheelImporter\Repository\TranslationRepository;
 use Trotibike\EwheelImporter\Pricing\ExchangeRateProviderInterface;
 use Trotibike\EwheelImporter\Pricing\PricingConverter;
+use Trotibike\EwheelImporter\Config\Configuration;
 use Mockery;
 
 /**
@@ -161,6 +162,38 @@ class MockFactory {
             ->andReturnUsing( fn( $price ) => round( $price * $multiplier, 2 ) );
         $mock->shouldReceive( 'format_price' )
             ->andReturnUsing( fn( $price ) => number_format( $price, 2, '.', '' ) );
+        return $mock;
+    }
+
+    /**
+     * Create a mock configuration.
+     *
+     * @return \Mockery\MockInterface&Configuration
+     */
+    public static function configuration(): Configuration {
+        $mock = Mockery::mock( Configuration::class );
+        $mock->shouldReceive( 'get_api_key' )->andReturn( 'test-api-key' );
+        $mock->shouldReceive( 'get_target_language' )->andReturn( 'ro' );
+        $mock->shouldReceive( 'get_source_currency' )->andReturn( 'EUR' );
+        $mock->shouldReceive( 'get_target_currency' )->andReturn( 'RON' );
+        $mock->shouldReceive( 'get_markup_percentage' )->andReturn( 20.0 );
+        $mock->shouldReceive( 'get_sync_frequency' )->andReturn( 'daily' );
+        $mock->shouldReceive( 'get_last_sync' )->andReturn( null );
+        $mock->shouldReceive( 'get_translation_service' )->andReturn( 'google' );
+        $mock->shouldReceive( 'get_deepl_api_key' )->andReturn( '' );
+        $mock->shouldReceive( 'get_google_api_key' )->andReturn( '' );
+        $mock->shouldReceive( 'get_sync_fields' )->andReturn(
+            [
+                'name'              => true,
+                'description'       => true,
+                'short_description' => true,
+                'price'             => true,
+                'image'             => true,
+                'categories'        => true,
+                'attributes'        => true,
+                'stock'             => true,
+            ]
+        );
         return $mock;
     }
 }

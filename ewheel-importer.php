@@ -200,6 +200,7 @@ final class Ewheel_Importer
             'markup_percent',
             'sync_frequency',
             'target_language',
+            'sync_fields',
         ];
 
         foreach ($settings as $setting) {
@@ -290,13 +291,16 @@ final class Ewheel_Importer
         }
 
         try {
-            $sync_service = ServiceFactory::create_sync_service();
-            $result = $sync_service->sync_all();
+            $limit = isset($_POST['limit']) ? (int) $_POST['limit'] : 0;
+
+            // Re-use launcher directly or through factory
+            $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+            $sync_id = $launcher->start_sync($limit);
 
             wp_send_json_success(
                 [
-                    'message' => $result->get_summary(),
-                    'results' => $result->to_array(),
+                    'message' => __('Sync started successfully. ID: ' . $sync_id, 'ewheel-importer'),
+                    'sync_id' => $sync_id,
                 ]
             );
         } catch (\Exception $e) {
@@ -425,7 +429,7 @@ final class Ewheel_Importer
     public function add_cron_schedules(array $schedules): array
     {
         $schedules['weekly'] = [
-            'interval' => WEEK_IN_SECONDS,
+            'interval' => 604800, // WEEK_IN_SECONDS
             'display' => __('Once Weekly', 'ewheel-importer'),
         ];
         return $schedules;
@@ -438,6 +442,8 @@ final class Ewheel_Importer
      */
     public function activate(): void
     {
+        \Trotibike\EwheelImporter\Database\SchemaInstaller::install();
+
         $frequency = $this->config->get_sync_frequency();
 
         if ($frequency !== 'manual' && !wp_next_scheduled('ewheel_importer_cron_sync')) {

@@ -133,6 +133,18 @@ class ServiceFactory
             }
         );
 
+        // Attribute Service
+        $container->singleton(
+            \Trotibike\EwheelImporter\Service\AttributeService::class,
+            fn() => new \Trotibike\EwheelImporter\Service\AttributeService()
+        );
+
+        // Variation Service
+        $container->singleton(
+            \Trotibike\EwheelImporter\Service\VariationService::class,
+            fn() => new \Trotibike\EwheelImporter\Service\VariationService()
+        );
+
         // Image Service
         $container->singleton(
             ImageService::class,
@@ -158,7 +170,8 @@ class ServiceFactory
             function (ServiceContainer $c) {
                 return new ProductTransformer(
                     $c->get(Translator::class),
-                    $c->get(PricingConverter::class)
+                    $c->get(PricingConverter::class),
+                    $c->get(Configuration::class)
                 );
             }
         );
@@ -175,6 +188,36 @@ class ServiceFactory
                     $c->get(Configuration::class)
                 );
             }
+        );
+
+        // Sync Launcher
+        $container->singleton(
+            \Trotibike\EwheelImporter\Sync\SyncLauncher::class,
+            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\SyncLauncher(
+                $c->get(Configuration::class)
+            )
+        );
+
+        // WooCommerce Sync
+        $container->singleton(
+            \Trotibike\EwheelImporter\Sync\WooCommerceSync::class,
+            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\WooCommerceSync(
+                $c->get(EwheelApiClient::class),
+                $c->get(ProductTransformer::class),
+                $c->get(\Trotibike\EwheelImporter\Service\AttributeService::class),
+                $c->get(\Trotibike\EwheelImporter\Service\VariationService::class),
+                $c->get(ImageService::class)
+            )
+        );
+
+        // Sync Batch Processor
+        $container->singleton(
+            \Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class,
+            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\SyncBatchProcessor(
+                $c->get(EwheelApiClient::class),
+                $c->get(\Trotibike\EwheelImporter\Sync\WooCommerceSync::class),
+                $c->get(Configuration::class)
+            )
         );
 
         return $container;

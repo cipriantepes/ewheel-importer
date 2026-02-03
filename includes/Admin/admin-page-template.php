@@ -38,10 +38,43 @@ $last_sync = $settings['last_sync'];
                             </p>
                         </td>
                     </tr>
-                    <h2><?php esc_html_e('Translation Settings', 'ewheel-importer'); ?></h2>
-                    <table class="form-table">
+                </table>
+
+                <h2><?php esc_html_e('Field Mapping', 'ewheel-importer'); ?></h2>
+                <p class="description"><?php esc_html_e('Select which fields to synchronize from Ewheel.', 'ewheel-importer'); ?></p>
+                <table class="form-table">
+                    <?php
+                    $fields = [
+                        'name' => __('Product Name', 'ewheel-importer'),
+                        'description' => __('Description', 'ewheel-importer'),
+                        'short_description' => __('Short Description', 'ewheel-importer'),
+                        'price' => __('Price (RRP)', 'ewheel-importer'),
+                        'image' => __('Images', 'ewheel-importer'),
+                        'categories' => __('Categories', 'ewheel-importer'),
+                        'attributes' => __('Attributes', 'ewheel-importer'),
+                    ];
+                    $sync_fields = $config->get_sync_fields();
+                    foreach ($fields as $key => $label) :
+                    ?>
                         <tr>
                             <th scope="row">
+                                <label for="ewheel_importer_sync_fields_<?php echo esc_attr($key); ?>">
+                                    <?php echo esc_html($label); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <input type="checkbox" id="ewheel_importer_sync_fields_<?php echo esc_attr($key); ?>"
+                                    name="ewheel_importer_sync_fields[<?php echo esc_attr($key); ?>]" value="1"
+                                    <?php checked(!empty($sync_fields[$key])); ?> />
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+
+                <h2><?php esc_html_e('Translation Settings', 'ewheel-importer'); ?></h2>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
                                 <label for="ewheel_importer_translation_driver">
                                     <?php esc_html_e('Translation Engine', 'ewheel-importer'); ?>
                                 </label>
@@ -198,7 +231,14 @@ $last_sync = $settings['last_sync'];
             <div class="ewheel-importer-box">
                 <h3><?php esc_html_e('Manual Sync', 'ewheel-importer'); ?></h3>
                 <p>
-                    <?php esc_html_e('Run a full product synchronization now.', 'ewheel-importer'); ?>
+                    <label for="ewheel-sync-limit" style="margin-right: 10px;">
+                        <?php esc_html_e('Test Limit:', 'ewheel-importer'); ?>
+                    </label>
+                    <input type="number" id="ewheel-sync-limit" min="0"
+                        placeholder="<?php esc_attr_e('0 = All', 'ewheel-importer'); ?>" style="width: 80px;">
+                    <span class="description">
+                        <?php esc_html_e('Number of products to stop after (0 for all)', 'ewheel-importer'); ?>
+                    </span>
                 </p>
                 <p>
                     <button type="button" id="ewheel-run-sync" class="button button-primary">

@@ -35,9 +35,10 @@ class SyncLauncher
     /**
      * Start a full sync.
      *
+     * @param int $limit Optional limit of products to sync. 0 for unlimited.
      * @return string Sync ID.
      */
-    public function start_sync(): string
+    public function start_sync(int $limit = 0): string
     {
         $sync_id = uniqid('sync_');
 
@@ -50,6 +51,7 @@ class SyncLauncher
                 'started_at' => time(),
                 'processed' => 0,
                 'page' => 0,
+                'limit' => $limit,
                 'type' => 'full',
             ]
         );

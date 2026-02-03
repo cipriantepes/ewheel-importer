@@ -33,6 +33,15 @@ class Configuration
         'sync_frequency' => 'daily',
         'target_language' => 'ro',
         'last_sync' => null,
+        'sync_fields' => [
+            'name' => true,
+            'description' => true,
+            'short_description' => true,
+            'price' => true,
+            'image' => true, // note: singular usage in code might vary, let's stick to key names
+            'categories' => true,
+            'attributes' => true,
+        ],
     ];
 
     /**
@@ -77,6 +86,26 @@ class Configuration
     public function get_translate_api_key(): string
     {
         return (string) $this->get('translate_api_key');
+    }
+
+    /**
+     * Get DeepL API key.
+     *
+     * @return string
+     */
+    public function get_deepl_api_key(): string
+    {
+        return (string) $this->get('deepl_api_key');
+    }
+
+    /**
+     * Get translation driver (google/deepl).
+     *
+     * @return string
+     */
+    public function get_translation_driver(): string
+    {
+        return (string) $this->get('translation_driver');
     }
 
     /**
@@ -138,6 +167,23 @@ class Configuration
     public function update_last_sync(): bool
     {
         return $this->set('last_sync', gmdate('Y-m-d\TH:i:s'));
+    }
+
+    /**
+     * Get sync fields configuration.
+     *
+     * @return array
+     */
+    public function get_sync_fields(): array
+    {
+        $defaults = self::DEFAULTS['sync_fields'];
+        $saved = $this->get('sync_fields');
+
+        if (!is_array($saved)) {
+            return $defaults;
+        }
+
+        return array_merge($defaults, $saved);
     }
 
     /**

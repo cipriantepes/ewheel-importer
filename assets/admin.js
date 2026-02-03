@@ -24,6 +24,7 @@
             var $runButton = $('#ewheel-run-sync');
             var $stopButton = $('#ewheel-stop-sync');
             var $status = $('#ewheel-sync-status');
+            var limit = $('#ewheel-sync-limit').val() || 0;
             var self = this;
 
             $runButton.prop('disabled', true);
@@ -39,7 +40,8 @@
                 type: 'POST',
                 data: {
                     action: 'ewheel_run_sync',
-                    nonce: ewheelImporter.nonce
+                    nonce: ewheelImporter.nonce,
+                    limit: limit
                 },
                 success: function (response) {
                     if (response.success) {

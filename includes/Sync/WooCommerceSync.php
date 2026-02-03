@@ -35,15 +35,47 @@ class WooCommerceSync
     private ProductTransformer $transformer;
 
     /**
+     * Attribute Service.
+     *
+     * @var \Trotibike\EwheelImporter\Service\AttributeService
+     */
+    private $attribute_service;
+
+    /**
+     * Variation Service.
+     *
+     * @var \Trotibike\EwheelImporter\Service\VariationService
+     */
+    private $variation_service;
+
+    /**
+     * Image Service.
+     *
+     * @var \Trotibike\EwheelImporter\Service\ImageService
+     */
+    private $image_service;
+
+    /**
      * Constructor.
      *
-     * @param EwheelApiClient    $ewheel_client The ewheel API client.
-     * @param ProductTransformer $transformer   The product transformer.
+     * @param EwheelApiClient                                    $ewheel_client     The ewheel API client.
+     * @param ProductTransformer                                 $transformer       The product transformer.
+     * @param \Trotibike\EwheelImporter\Service\AttributeService $attribute_service Attribute service.
+     * @param \Trotibike\EwheelImporter\Service\VariationService $variation_service Variation service.
+     * @param \Trotibike\EwheelImporter\Service\ImageService     $image_service     Image service.
      */
-    public function __construct(EwheelApiClient $ewheel_client, ProductTransformer $transformer)
-    {
+    public function __construct(
+        EwheelApiClient $ewheel_client,
+        ProductTransformer $transformer,
+        \Trotibike\EwheelImporter\Service\AttributeService $attribute_service,
+        \Trotibike\EwheelImporter\Service\VariationService $variation_service,
+        \Trotibike\EwheelImporter\Service\ImageService $image_service
+    ) {
         $this->ewheel_client = $ewheel_client;
         $this->transformer = $transformer;
+        $this->attribute_service = $attribute_service;
+        $this->variation_service = $variation_service;
+        $this->image_service = $image_service;
     }
 
     /**
@@ -139,7 +171,8 @@ class WooCommerceSync
         );
 
         if (!empty($terms) && !is_wp_error($terms)) {
-            return $terms[0]->term_id;
+            $term = $terms[0];
+            return ($term instanceof \WP_Term) ? $term->term_id : (int) $term;
         }
 
         return null;
@@ -329,7 +362,7 @@ class WooCommerceSync
 
         // Handle variations for variable products
         if ($product_type === 'variable' && !empty($data['variations'])) {
-            $this->create_variations($product_id, $data['variations'], $data['attributes'] ?? []);
+            $this->variation_service->create_variations($product_id, $data['variations'], $data['attributes'] ?? []);
         }
 
         return $product_id;
@@ -355,7 +388,7 @@ class WooCommerceSync
 
         // Update variations for variable products
         if ($product instanceof \WC_Product_Variable && !empty($data['variations'])) {
-            $this->update_variations($product_id, $data['variations'], $data['attributes'] ?? []);
+            $this->variation_service->update_variations($product_id, $data['variations'], $data['attributes'] ?? []);
         }
     }
 
@@ -409,7 +442,7 @@ class WooCommerceSync
 
         // Set attributes
         if (!empty($data['attributes'])) {
-            $this->set_product_attributes($product, $data['attributes']);
+            $this->attribute_service->set_product_attributes($product, $data['attributes']);
         }
 
         // Set meta data
@@ -437,13 +470,8 @@ class WooCommerceSync
                 continue;
             }
 
-            // Check if image already exists
-            $attachment_id = $this->get_attachment_by_url($url);
-
-            if (!$attachment_id) {
-                // Download and create attachment
-                $attachment_id = $this->upload_image_from_url($url);
-            }
+            // Use ImageService to import
+            $attachment_id = $this->image_service->import_from_url($url);
 
             if ($attachment_id) {
                 $image_ids[] = $attachment_id;
@@ -458,198 +486,11 @@ class WooCommerceSync
         }
     }
 
-    /**
-     * Get attachment ID by URL.
-     *
-     * @param string $url The image URL.
-     * @return int|null The attachment ID or null.
-     */
-    private function get_attachment_by_url(string $url): ?int
-    {
-        global $wpdb;
 
-        $attachment_id = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_ewheel_source_url' AND meta_value = %s",
-                $url
-            )
-        );
 
-        return $attachment_id ? (int) $attachment_id : null;
-    }
 
-    /**
-     * Upload an image from URL.
-     *
-     * @param string $url The image URL.
-     * @return int|null The attachment ID or null on failure.
-     */
-    private function upload_image_from_url(string $url): ?int
-    {
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
 
-        // Download file to temp location
-        $temp_file = download_url($url);
 
-        if (is_wp_error($temp_file)) {
-            return null;
-        }
-
-        $file_name = basename(wp_parse_url($url, PHP_URL_PATH));
-        $file_array = [
-            'name' => $file_name,
-            'tmp_name' => $temp_file,
-        ];
-
-        // Upload to media library
-        $attachment_id = media_handle_sideload($file_array, 0);
-
-        if (is_wp_error($attachment_id)) {
-            @unlink($temp_file);
-            return null;
-        }
-
-        // Store source URL in meta
-        update_post_meta($attachment_id, '_ewheel_source_url', $url);
-
-        return $attachment_id;
-    }
-
-    /**
-     * Set product attributes.
-     *
-     * @param \WC_Product $product    The product.
-     * @param array       $attributes Array of attribute data.
-     * @return void
-     */
-    private function set_product_attributes(\WC_Product $product, array $attributes): void
-    {
-        $wc_attributes = [];
-
-        foreach ($attributes as $attr) {
-            $name = $attr['name'] ?? '';
-            $options = $attr['options'] ?? [];
-
-            if (empty($name) || empty($options)) {
-                continue;
-            }
-
-            $attribute = new \WC_Product_Attribute();
-            $attribute->set_name($name);
-            $attribute->set_options($options);
-            $attribute->set_visible($attr['visible'] ?? true);
-            $attribute->set_variation($attr['variation'] ?? false);
-
-            $wc_attributes[] = $attribute;
-        }
-
-        $product->set_attributes($wc_attributes);
-    }
-
-    /**
-     * Create variations for a variable product.
-     *
-     * @param int   $product_id The parent product ID.
-     * @param array $variations Array of variation data.
-     * @param array $attributes The product attributes.
-     * @return void
-     */
-    private function create_variations(int $product_id, array $variations, array $attributes): void
-    {
-        foreach ($variations as $variation_data) {
-            $variation = new \WC_Product_Variation();
-            $variation->set_parent_id($product_id);
-
-            if (isset($variation_data['sku'])) {
-                $variation->set_sku($variation_data['sku']);
-            }
-
-            if (isset($variation_data['regular_price'])) {
-                $variation->set_regular_price($variation_data['regular_price']);
-            }
-
-            // Set variation attributes
-            if (!empty($variation_data['attributes'])) {
-                $attrs = [];
-                foreach ($variation_data['attributes'] as $attr) {
-                    $slug = sanitize_title($attr['name'] ?? '');
-                    $attrs[$slug] = $attr['option'] ?? '';
-                }
-                $variation->set_attributes($attrs);
-            }
-
-            $variation->save();
-        }
-    }
-
-    /**
-     * Update variations for a variable product.
-     *
-     * @param int   $product_id The parent product ID.
-     * @param array $variations Array of variation data.
-     * @param array $attributes The product attributes.
-     * @return void
-     */
-    private function update_variations(int $product_id, array $variations, array $attributes): void
-    {
-        // Get existing variations
-        $product = wc_get_product($product_id);
-        $existing_variation_ids = $product->get_children();
-
-        // Map existing variations by SKU
-        $existing_by_sku = [];
-        foreach ($existing_variation_ids as $var_id) {
-            $var = wc_get_product($var_id);
-            if ($var) {
-                $existing_by_sku[$var->get_sku()] = $var_id;
-            }
-        }
-
-        // Update or create variations
-        foreach ($variations as $variation_data) {
-            $sku = $variation_data['sku'] ?? '';
-
-            if (isset($existing_by_sku[$sku])) {
-                // Update existing
-                $variation = wc_get_product($existing_by_sku[$sku]);
-                if ($variation) {
-                    if (isset($variation_data['regular_price'])) {
-                        $variation->set_regular_price($variation_data['regular_price']);
-                    }
-                    $variation->save();
-                }
-                unset($existing_by_sku[$sku]);
-            } else {
-                // Create new variation
-                $variation = new \WC_Product_Variation();
-                $variation->set_parent_id($product_id);
-
-                if (isset($variation_data['sku'])) {
-                    $variation->set_sku($variation_data['sku']);
-                }
-
-                if (isset($variation_data['regular_price'])) {
-                    $variation->set_regular_price($variation_data['regular_price']);
-                }
-
-                if (!empty($variation_data['attributes'])) {
-                    $attrs = [];
-                    foreach ($variation_data['attributes'] as $attr) {
-                        $slug = sanitize_title($attr['name'] ?? '');
-                        $attrs[$slug] = $attr['option'] ?? '';
-                    }
-                    $variation->set_attributes($attrs);
-                }
-
-                $variation->save();
-            }
-        }
-
-        // Note: We don't delete variations that are no longer in the feed
-        // to avoid data loss. They can be manually removed.
-    }
 
     /**
      * Get the last sync timestamp.

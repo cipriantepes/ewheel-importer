@@ -70,7 +70,18 @@ class SyncBatchProcessor
     public function process_batch(int $page, string $sync_id, string $since = ''): void
     {
         try {
-            // Check if sync should stop (optional: can implement a stop flag in options)
+            // Check status for limit
+            $status = get_option('ewheel_importer_sync_status', []);
+            $limit = isset($status['limit']) ? (int) $status['limit'] : 0;
+            $processed = isset($status['processed']) ? (int) $status['processed'] : 0;
+
+            // Check if limit already reached
+            if ($limit > 0 && $processed >= $limit) {
+                $this->finish_sync($sync_id);
+                return;
+            }
+
+            // Check if sync should stop
             if (get_option('ewheel_importer_stop_sync_' . $sync_id)) {
                 return;
             }
@@ -100,13 +111,22 @@ class SyncBatchProcessor
             // The transformer is private in WooCommerceSync. Ideally, we should inject the Transformer here too.
             // But for now, let's assume we update WooCommerceSync to have a public `process_ewheel_products_batch` method.
 
+            // Apply limit to currenct batch if needed
+            if ($limit > 0 && ($processed + count($products)) > $limit) {
+                $remaining = $limit - $processed;
+                $products = array_slice($products, 0, $remaining);
+            }
+
             $this->woo_sync->process_ewheel_products_batch($products);
 
             // Update progress
             $this->update_progress($sync_id, $page, count($products));
 
-            // Schedule next batch if we got a full page
-            if (count($products) >= self::BATCH_SIZE) {
+            // Schedule next batch if we got a full page AND limit not reached
+            $current_processed = count($products);
+            $total_processed = $processed + $current_processed;
+
+            if ($current_processed >= self::BATCH_SIZE && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
                     time() + 5, // 5 seconds delay to be nice to the server
                     'ewheel_importer_process_batch',
