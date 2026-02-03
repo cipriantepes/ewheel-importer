@@ -204,6 +204,9 @@ $last_sync = $settings['last_sync'];
                     <button type="button" id="ewheel-run-sync" class="button button-primary">
                         <?php esc_html_e('Run Sync Now', 'ewheel-importer'); ?>
                     </button>
+                    <button type="button" id="ewheel-stop-sync" class="button button-secondary" style="display:none;">
+                        <?php esc_html_e('Stop Sync', 'ewheel-importer'); ?>
+                    </button>
                     <span id="ewheel-sync-status"></span>
                 </p>
                 <?php if ($last_sync): ?>

@@ -2,29 +2,33 @@
  * Ewheel Importer Admin JavaScript
  */
 
-(function($) {
+(function ($) {
     'use strict';
 
     var EwheelImporter = {
         pollInterval: null,
 
-        init: function() {
+        init: function () {
             this.bindEvents();
         },
 
-        bindEvents: function() {
+        bindEvents: function () {
             $('#ewheel-run-sync').on('click', this.runSync.bind(this));
+            $('#ewheel-stop-sync').on('click', this.stopSync.bind(this));
             $('#ewheel-test-connection').on('click', this.testConnection.bind(this));
         },
 
-        runSync: function(e) {
+        runSync: function (e) {
             e.preventDefault();
 
-            var $button = $('#ewheel-run-sync');
+            var $runButton = $('#ewheel-run-sync');
+            var $stopButton = $('#ewheel-stop-sync');
             var $status = $('#ewheel-sync-status');
             var self = this;
 
-            $button.prop('disabled', true);
+            $runButton.prop('disabled', true);
+            $stopButton.show();
+
             $status
                 .removeClass('success error')
                 .addClass('syncing')
@@ -37,20 +41,22 @@
                     action: 'ewheel_run_sync',
                     nonce: ewheelImporter.nonce
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.success) {
                         $status.text('Sync started... Waiting for updates.');
-                        self.startPolling($status, $button);
+                        self.startPolling($status, $runButton, $stopButton);
                     } else {
-                        $button.prop('disabled', false);
+                        $runButton.prop('disabled', false);
+                        $stopButton.hide();
                         $status
                             .removeClass('syncing success')
                             .addClass('error')
                             .text(ewheelImporter.strings.error + ' ' + response.data.message);
                     }
                 },
-                error: function(xhr, status, error) {
-                    $button.prop('disabled', false);
+                error: function (xhr, status, error) {
+                    $runButton.prop('disabled', false);
+                    $stopButton.hide();
                     $status
                         .removeClass('syncing success')
                         .addClass('error')
@@ -59,9 +65,34 @@
             });
         },
 
-        startPolling: function($status, $button) {
+        stopSync: function (e) {
+            e.preventDefault();
+            var $stopButton = $('#ewheel-stop-sync');
+            var $status = $('#ewheel-sync-status');
+
+            $stopButton.prop('disabled', true).text('Stopping...');
+            $status.text('Requesting stop...');
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_stop_sync',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        $status.text(response.data.message);
+                    } else {
+                        $status.text('Error stopping: ' + response.data.message);
+                    }
+                }
+            });
+        },
+
+        startPolling: function ($status, $runButton, $stopButton) {
             var self = this;
-            this.pollInterval = setInterval(function() {
+            this.pollInterval = setInterval(function () {
                 $.ajax({
                     url: ewheelImporter.ajaxUrl,
                     type: 'POST',
@@ -69,29 +100,34 @@
                         action: 'ewheel_get_sync_status',
                         nonce: ewheelImporter.nonce
                     },
-                    success: function(response) {
+                    success: function (response) {
                         if (response.success) {
                             var data = response.data;
-                            
+
                             if (data.status === 'completed') {
                                 clearInterval(self.pollInterval);
-                                $button.prop('disabled', false);
+                                $runButton.prop('disabled', false);
+                                $stopButton.hide();
                                 $status
                                     .removeClass('syncing error')
                                     .addClass('success')
                                     .text(ewheelImporter.strings.success + ' Processed: ' + data.processed);
-                                
-                                setTimeout(function() {
+
+                                setTimeout(function () {
                                     location.reload();
                                 }, 2000);
 
                             } else if (data.status === 'failed') {
                                 clearInterval(self.pollInterval);
-                                $button.prop('disabled', false);
+                                $runButton.prop('disabled', false);
+                                $stopButton.hide();
                                 $status
                                     .removeClass('syncing success')
                                     .addClass('error')
                                     .text('Sync Failed.');
+
+                            } else if (data.status === 'stopping') {
+                                $status.text('Finishing current batch before stopping...');
 
                             } else {
                                 // Still running
@@ -104,7 +140,7 @@
             }, 3000); // Poll every 3 seconds
         },
 
-        testConnection: function(e) {
+        testConnection: function (e) {
             e.preventDefault();
 
             var $button = $('#ewheel-test-connection');
@@ -123,7 +159,7 @@
                     action: 'ewheel_test_connection',
                     nonce: ewheelImporter.nonce
                 },
-                success: function(response) {
+                success: function (response) {
                     $button.prop('disabled', false);
 
                     if (response.success) {
@@ -138,7 +174,7 @@
                             .text(ewheelImporter.strings.connFailed + ' ' + response.data.message);
                     }
                 },
-                error: function(xhr, status, error) {
+                error: function (xhr, status, error) {
                     $button.prop('disabled', false);
                     $status
                         .removeClass('testing success')
@@ -149,7 +185,7 @@
         }
     };
 
-    $(document).ready(function() {
+    $(document).ready(function () {
         EwheelImporter.init();
     });
 

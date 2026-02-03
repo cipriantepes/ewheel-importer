@@ -139,6 +139,7 @@ final class Ewheel_Importer
         // AJAX
         add_action('wp_ajax_ewheel_run_sync', [$this, 'ajax_run_sync']);
         add_action('wp_ajax_ewheel_get_sync_status', [$this, 'ajax_get_sync_status']);
+        add_action('wp_ajax_ewheel_stop_sync', [$this, 'ajax_stop_sync']);
         add_action('wp_ajax_ewheel_test_connection', [$this, 'ajax_test_connection']);
 
         // Cron
@@ -324,6 +325,45 @@ final class Ewheel_Importer
         }
 
         wp_send_json_success($status);
+    }
+
+    /**
+     * AJAX: Stop sync.
+     *
+     * @return void
+     */
+    public function ajax_stop_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field(wp_unslash($_POST['sync_id'])) : '';
+
+        if (empty($sync_id)) {
+            // Try to get running sync from status
+            $status = get_option('ewheel_importer_sync_status', []);
+            if (!empty($status['id']) && $status['status'] === 'running') {
+                $sync_id = $status['id'];
+            }
+        }
+
+        if (!empty($sync_id)) {
+            update_option('ewheel_importer_stop_sync_' . $sync_id, true);
+
+            // Update status immediately to reflect stopping
+            $status = get_option('ewheel_importer_sync_status', []);
+            if (isset($status['id']) && $status['id'] === $sync_id) {
+                $status['status'] = 'stopping';
+                update_option('ewheel_importer_sync_status', $status);
+            }
+
+            wp_send_json_success(['message' => __('Sync stopping...', 'ewheel-importer')]);
+        } else {
+            wp_send_json_error(['message' => __('No running sync found.', 'ewheel-importer')]);
+        }
     }
 
     /**
