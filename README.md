@@ -5,11 +5,17 @@ A WordPress plugin to import products from the ewheel.es API into WooCommerce wi
 ## Features
 
 - **Automatic Product Import**: Fetches products from ewheel.es API and creates/updates them in WooCommerce
-- **Translation**: Automatically translates product names and descriptions to Romanian using Google Translate API
+- **Smart Translation**:
+    - Supports **Google Translate** and **DeepL**
+    - **Persistent Caching**: Saves translations to database to minimize API costs
 - **Price Conversion**: Converts EUR prices to RON with configurable exchange rate and markup percentage
+- **Sync Controls**:
+    - **Test Limit**: Limit the number of products synced for testing
+    - **Field Mapping**: Select exactly which fields (Title, Description, Price, Images, etc.) to overwrite
 - **Category Sync**: Imports categories and maintains hierarchy
 - **Variations Support**: Handles products with variants/variations
 - **Image Import**: Downloads and imports product images
+- **Background Processing**: Uses Action Scheduler for reliable, non-blocking updates
 - **Incremental Sync**: Only syncs products modified since last sync
 - **Scheduled Sync**: Automatic daily or weekly synchronization via WP Cron
 - **Manual Sync**: One-click sync from admin panel
@@ -20,7 +26,7 @@ A WordPress plugin to import products from the ewheel.es API into WooCommerce wi
 - WooCommerce 7.0+
 - PHP 7.4+
 - ewheel.es API key
-- Google Cloud Translate API key (for translation)
+- Google Cloud Translate API key OR DeepL API Key
 
 ## Installation
 
@@ -31,29 +37,36 @@ A WordPress plugin to import products from the ewheel.es API into WooCommerce wi
 3. Upload the ZIP file and click "Install Now"
 4. Activate the plugin
 
-### Manual Installation
+**Note:** If you are building the ZIP yourself, run `bin/build-release.sh` to create a production-ready ZIP that includes all necessary dependencies.
+
+### Manual Installation (Developer)
 
 1. Upload the `ewheel-importer` folder to `/wp-content/plugins/`
-2. Run `composer install` in the plugin directory (for development)
+2. Run `composer install --no-dev` in the plugin directory
 3. Activate the plugin in WordPress Admin → Plugins
 
 ## Configuration
 
 1. Go to WooCommerce → Ewheel Import
 2. Enter your **ewheel.es API Key**
-3. Enter your **Google Translate API Key** (for automatic translation)
+3. **Translation Settings**:
+    - Select Driver: **Google Translate** or **DeepL**
+    - Enter the corresponding API Key
 4. Set your **EUR to RON exchange rate**
 5. Set your **markup percentage** (e.g., 20 for 20% profit margin)
-6. Choose **sync frequency** (daily, weekly, or manual)
-7. Click "Save Changes"
+6. **Field Mapping**: Check/uncheck fields you want to sync (e.g. uncheck 'Description' to manually manage descriptions)
+7. Choose **sync frequency** (daily, weekly, or manual)
+8. Click "Save Changes"
 
 ## Usage
 
 ### Manual Sync
 
+### Manual Sync
 1. Go to WooCommerce → Ewheel Import
-2. Click "Run Sync Now"
-3. Wait for the sync to complete
+2. (Optional) Enter a **Test Limit** (e.g., 5) to only sync a few products for testing
+3. Click "Run Sync Now"
+4. The requested limit (or all products) will be processed in background batches
 
 ### Automatic Sync
 
@@ -138,7 +151,10 @@ Check that your Google Translate API key is correct and has the Translation API 
 Ensure your server allows outbound HTTP requests and has enough memory for image processing.
 
 ### Sync takes too long
-The first sync imports all products. Subsequent syncs use incremental updates which are faster.
+The plugin uses **Action Scheduler** (background processing) to prevent timeouts. The first sync imports all products, while subsequent syncs are faster (incremental). You can check the progress in **WooCommerce > Status > Scheduled Actions** (search for `ewheel`).
+
+### Sync "stuck"
+If the process doesn't seem to be moving, check **WooCommerce > Status > Scheduled Actions**. If actions are "Pending", ensure your WP Cron is running.
 
 ## Support
 
