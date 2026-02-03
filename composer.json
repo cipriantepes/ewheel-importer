@@ -1,0 +1,40 @@
+{
+    "name": "trotibike/ewheel-importer",
+    "description": "WordPress plugin to import products from ewheel.es API into WooCommerce",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Trotibike",
+            "email": "contact@trotibike.ro"
+        }
+    ],
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "brain/monkey": "^2.6",
+        "mockery/mockery": "^1.6",
+        "yoast/phpunit-polyfills": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Trotibike\\EwheelImporter\\": "includes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Trotibike\\EwheelImporter\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-html coverage"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    }
+}

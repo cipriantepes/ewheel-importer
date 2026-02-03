@@ -1,0 +1,100 @@
+/**
+ * Ewheel Importer Admin Styles
+ */
+
+.ewheel-importer-admin {
+    max-width: 1200px;
+}
+
+.ewheel-importer-columns {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.ewheel-importer-main {
+    flex: 1;
+    background: #fff;
+    padding: 20px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+.ewheel-importer-sidebar {
+    width: 300px;
+}
+
+.ewheel-importer-box {
+    background: #fff;
+    padding: 15px 20px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.ewheel-importer-box h3 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.ewheel-importer-box ul {
+    margin: 10px 0;
+    padding-left: 20px;
+}
+
+.ewheel-importer-box li {
+    margin-bottom: 5px;
+}
+
+#ewheel-sync-status,
+#ewheel-connection-status {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 5px 10px;
+    border-radius: 3px;
+}
+
+#ewheel-sync-status.syncing,
+#ewheel-connection-status.testing {
+    background: #f0f0f1;
+    color: #646970;
+}
+
+#ewheel-sync-status.success,
+#ewheel-connection-status.success {
+    background: #d4edda;
+    color: #155724;
+}
+
+#ewheel-sync-status.error,
+#ewheel-connection-status.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.ewheel-importer-admin .form-table th {
+    width: 200px;
+}
+
+.ewheel-importer-admin h2 {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.ewheel-importer-admin h2:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+@media (max-width: 782px) {
+    .ewheel-importer-columns {
+        flex-direction: column;
+    }
+
+    .ewheel-importer-sidebar {
+        width: 100%;
+    }
+}
