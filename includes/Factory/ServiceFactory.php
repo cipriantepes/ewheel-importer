@@ -14,7 +14,9 @@ use Trotibike\EwheelImporter\Api\WPHttpClient;
 use Trotibike\EwheelImporter\Api\HttpClientInterface;
 use Trotibike\EwheelImporter\Translation\Translator;
 use Trotibike\EwheelImporter\Translation\GoogleTranslateService;
+use Trotibike\EwheelImporter\Translation\DeepLTranslateService;
 use Trotibike\EwheelImporter\Translation\TranslationServiceInterface;
+use Trotibike\EwheelImporter\Repository\TranslationRepository;
 use Trotibike\EwheelImporter\Pricing\PricingConverter;
 use Trotibike\EwheelImporter\Pricing\FixedExchangeRateProvider;
 use Trotibike\EwheelImporter\Pricing\ExchangeRateProviderInterface;
@@ -30,14 +32,16 @@ use Trotibike\EwheelImporter\Service\ImageService;
  * Open/Closed Principle: Easy to extend with new services without modifying existing code.
  * Dependency Inversion: Creates abstractions, not concretions.
  */
-class ServiceFactory {
+class ServiceFactory
+{
 
     /**
      * Build and configure the service container.
      *
      * @return ServiceContainer Configured container.
      */
-    public static function build_container(): ServiceContainer {
+    public static function build_container(): ServiceContainer
+    {
         $container = new ServiceContainer();
 
         // Configuration
@@ -55,11 +59,11 @@ class ServiceFactory {
         // Ewheel API Client
         $container->singleton(
             EwheelApiClient::class,
-            function ( ServiceContainer $c ) {
-                $config = $c->get( Configuration::class );
+            function (ServiceContainer $c) {
+                $config = $c->get(Configuration::class);
                 return new EwheelApiClient(
                     $config->get_api_key(),
-                    $c->get( HttpClientInterface::class )
+                    $c->get(HttpClientInterface::class)
                 );
             }
         );
@@ -67,22 +71,38 @@ class ServiceFactory {
         // Translation Service
         $container->singleton(
             TranslationServiceInterface::class,
-            function ( ServiceContainer $c ) {
-                $config = $c->get( Configuration::class );
+            function (ServiceContainer $c) {
+                $config = $c->get(Configuration::class);
+                $driver = $config->get_translation_driver();
+
+                if ($driver === 'deepl') {
+                    return new DeepLTranslateService(
+                        $config->get_deepl_api_key(),
+                        $c->get(HttpClientInterface::class)
+                    );
+                }
+
                 return new GoogleTranslateService(
                     $config->get_translate_api_key(),
-                    $c->get( HttpClientInterface::class )
+                    $c->get(HttpClientInterface::class)
                 );
             }
+        );
+
+        // Translation Repository
+        $container->singleton(
+            \Trotibike\EwheelImporter\Repository\TranslationRepository::class,
+            fn() => new \Trotibike\EwheelImporter\Repository\TranslationRepository()
         );
 
         // Translator
         $container->singleton(
             Translator::class,
-            function ( ServiceContainer $c ) {
-                $config = $c->get( Configuration::class );
+            function (ServiceContainer $c) {
+                $config = $c->get(Configuration::class);
                 return new Translator(
-                    $c->get( TranslationServiceInterface::class ),
+                    $c->get(TranslationServiceInterface::class),
+                    $c->get(\Trotibike\EwheelImporter\Repository\TranslationRepository::class),
                     $config->get_target_language()
                 );
             }
@@ -91,10 +111,10 @@ class ServiceFactory {
         // Exchange Rate Provider
         $container->singleton(
             ExchangeRateProviderInterface::class,
-            function ( ServiceContainer $c ) {
-                $config = $c->get( Configuration::class );
+            function (ServiceContainer $c) {
+                $config = $c->get(Configuration::class);
                 return new FixedExchangeRateProvider(
-                    [ 'EUR_RON' => $config->get_exchange_rate() ]
+                    ['EUR_RON' => $config->get_exchange_rate()]
                 );
             }
         );
@@ -102,10 +122,10 @@ class ServiceFactory {
         // Pricing Converter
         $container->singleton(
             PricingConverter::class,
-            function ( ServiceContainer $c ) {
-                $config = $c->get( Configuration::class );
+            function (ServiceContainer $c) {
+                $config = $c->get(Configuration::class);
                 return new PricingConverter(
-                    $c->get( ExchangeRateProviderInterface::class ),
+                    $c->get(ExchangeRateProviderInterface::class),
                     'EUR',
                     'RON',
                     $config->get_markup_percent()
@@ -127,18 +147,18 @@ class ServiceFactory {
 
         $container->singleton(
             ProductRepository::class,
-            fn( ServiceContainer $c ) => new ProductRepository(
-                $c->get( ImageService::class )
+            fn(ServiceContainer $c) => new ProductRepository(
+                $c->get(ImageService::class)
             )
         );
 
         // Product Transformer
         $container->singleton(
             ProductTransformer::class,
-            function ( ServiceContainer $c ) {
+            function (ServiceContainer $c) {
                 return new ProductTransformer(
-                    $c->get( Translator::class ),
-                    $c->get( PricingConverter::class )
+                    $c->get(Translator::class),
+                    $c->get(PricingConverter::class)
                 );
             }
         );
@@ -146,13 +166,13 @@ class ServiceFactory {
         // Sync Service
         $container->singleton(
             SyncService::class,
-            function ( ServiceContainer $c ) {
+            function (ServiceContainer $c) {
                 return new SyncService(
-                    $c->get( EwheelApiClient::class ),
-                    $c->get( ProductTransformer::class ),
-                    $c->get( ProductRepository::class ),
-                    $c->get( CategoryRepository::class ),
-                    $c->get( Configuration::class )
+                    $c->get(EwheelApiClient::class),
+                    $c->get(ProductTransformer::class),
+                    $c->get(ProductRepository::class),
+                    $c->get(CategoryRepository::class),
+                    $c->get(Configuration::class)
                 );
             }
         );
@@ -167,9 +187,10 @@ class ServiceFactory {
      *
      * @return SyncService
      */
-    public static function create_sync_service(): SyncService {
+    public static function create_sync_service(): SyncService
+    {
         $container = self::build_container();
-        return $container->get( SyncService::class );
+        return $container->get(SyncService::class);
     }
 
     /**
@@ -178,7 +199,8 @@ class ServiceFactory {
      * @param string $api_key The API key to test.
      * @return EwheelApiClient
      */
-    public static function create_api_client( string $api_key ): EwheelApiClient {
-        return new EwheelApiClient( $api_key, new WPHttpClient() );
+    public static function create_api_client(string $api_key): EwheelApiClient
+    {
+        return new EwheelApiClient($api_key, new WPHttpClient());
     }
 }

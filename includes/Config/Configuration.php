@@ -12,7 +12,8 @@ namespace Trotibike\EwheelImporter\Config;
  *
  * Single Responsibility: Only handles configuration retrieval.
  */
-class Configuration {
+class Configuration
+{
 
     /**
      * Option prefix.
@@ -23,13 +24,15 @@ class Configuration {
      * Default configuration values.
      */
     private const DEFAULTS = [
-        'api_key'          => '',
+        'api_key' => '',
         'translate_api_key' => '',
-        'exchange_rate'    => 4.97,
-        'markup_percent'   => 20.0,
-        'sync_frequency'   => 'daily',
-        'target_language'  => 'ro',
-        'last_sync'        => null,
+        'deepl_api_key' => '',
+        'translation_driver' => 'google', // 'google' or 'deepl'
+        'exchange_rate' => 4.97,
+        'markup_percent' => 20.0,
+        'sync_frequency' => 'daily',
+        'target_language' => 'ro',
+        'last_sync' => null,
     ];
 
     /**
@@ -38,9 +41,10 @@ class Configuration {
      * @param string $key Configuration key.
      * @return mixed The configuration value.
      */
-    public function get( string $key ) {
-        $default = self::DEFAULTS[ $key ] ?? null;
-        return get_option( self::PREFIX . $key, $default );
+    public function get(string $key)
+    {
+        $default = self::DEFAULTS[$key] ?? null;
+        return get_option(self::PREFIX . $key, $default);
     }
 
     /**
@@ -50,8 +54,9 @@ class Configuration {
      * @param mixed  $value The value to set.
      * @return bool Success.
      */
-    public function set( string $key, $value ): bool {
-        return update_option( self::PREFIX . $key, $value );
+    public function set(string $key, $value): bool
+    {
+        return update_option(self::PREFIX . $key, $value);
     }
 
     /**
@@ -59,8 +64,9 @@ class Configuration {
      *
      * @return string
      */
-    public function get_api_key(): string {
-        return (string) $this->get( 'api_key' );
+    public function get_api_key(): string
+    {
+        return (string) $this->get('api_key');
     }
 
     /**
@@ -68,8 +74,9 @@ class Configuration {
      *
      * @return string
      */
-    public function get_translate_api_key(): string {
-        return (string) $this->get( 'translate_api_key' );
+    public function get_translate_api_key(): string
+    {
+        return (string) $this->get('translate_api_key');
     }
 
     /**
@@ -77,8 +84,9 @@ class Configuration {
      *
      * @return float
      */
-    public function get_exchange_rate(): float {
-        return (float) $this->get( 'exchange_rate' );
+    public function get_exchange_rate(): float
+    {
+        return (float) $this->get('exchange_rate');
     }
 
     /**
@@ -86,8 +94,9 @@ class Configuration {
      *
      * @return float
      */
-    public function get_markup_percent(): float {
-        return (float) $this->get( 'markup_percent' );
+    public function get_markup_percent(): float
+    {
+        return (float) $this->get('markup_percent');
     }
 
     /**
@@ -95,8 +104,9 @@ class Configuration {
      *
      * @return string
      */
-    public function get_sync_frequency(): string {
-        return (string) $this->get( 'sync_frequency' );
+    public function get_sync_frequency(): string
+    {
+        return (string) $this->get('sync_frequency');
     }
 
     /**
@@ -104,8 +114,9 @@ class Configuration {
      *
      * @return string
      */
-    public function get_target_language(): string {
-        return (string) $this->get( 'target_language' );
+    public function get_target_language(): string
+    {
+        return (string) $this->get('target_language');
     }
 
     /**
@@ -113,8 +124,9 @@ class Configuration {
      *
      * @return string|null
      */
-    public function get_last_sync(): ?string {
-        $value = $this->get( 'last_sync' );
+    public function get_last_sync(): ?string
+    {
+        $value = $this->get('last_sync');
         return $value ?: null;
     }
 
@@ -123,8 +135,9 @@ class Configuration {
      *
      * @return bool
      */
-    public function update_last_sync(): bool {
-        return $this->set( 'last_sync', gmdate( 'Y-m-d\TH:i:s' ) );
+    public function update_last_sync(): bool
+    {
+        return $this->set('last_sync', gmdate('Y-m-d\TH:i:s'));
     }
 
     /**
@@ -132,10 +145,11 @@ class Configuration {
      *
      * @return array
      */
-    public function get_all(): array {
+    public function get_all(): array
+    {
         $settings = [];
-        foreach ( array_keys( self::DEFAULTS ) as $key ) {
-            $settings[ $key ] = $this->get( $key );
+        foreach (array_keys(self::DEFAULTS) as $key) {
+            $settings[$key] = $this->get($key);
         }
         return $settings;
     }

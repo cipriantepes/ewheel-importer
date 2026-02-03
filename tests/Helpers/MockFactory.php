@@ -10,6 +10,7 @@ namespace Trotibike\EwheelImporter\Tests\Helpers;
 use Trotibike\EwheelImporter\Api\HttpClientInterface;
 use Trotibike\EwheelImporter\Translation\TranslationServiceInterface;
 use Trotibike\EwheelImporter\Translation\Translator;
+use Trotibike\EwheelImporter\Repository\TranslationRepository;
 use Trotibike\EwheelImporter\Pricing\ExchangeRateProviderInterface;
 use Trotibike\EwheelImporter\Pricing\PricingConverter;
 use Mockery;
@@ -50,6 +51,44 @@ class MockFactory {
      */
     public static function translation_service(): TranslationServiceInterface {
         return Mockery::mock( TranslationServiceInterface::class );
+    }
+
+    /**
+     * Create a mock translation repository.
+     *
+     * @return \Mockery\MockInterface&TranslationRepository
+     */
+    public static function translation_repository(): TranslationRepository {
+        $mock = Mockery::mock( TranslationRepository::class );
+        // By default, return null for get (no cached translation)
+        $mock->shouldReceive( 'get' )->andReturn( null );
+        $mock->shouldReceive( 'get_batch' )->andReturn( [] );
+        // Accept any save operations
+        $mock->shouldReceive( 'save' )->andReturn( true );
+        // Handle generate_hash for batch operations
+        $mock->shouldReceive( 'generate_hash' )
+            ->andReturnUsing( fn( $text, $source, $target ) => md5( $text . '|' . $source . '|' . $target ) );
+        return $mock;
+    }
+
+    /**
+     * Create a mock translation repository with cached translations.
+     *
+     * @param array $cache Map of "text|source|target" => translation.
+     * @return \Mockery\MockInterface&TranslationRepository
+     */
+    public static function translation_repository_with_cache( array $cache ): TranslationRepository {
+        $mock = Mockery::mock( TranslationRepository::class );
+        $mock->shouldReceive( 'get' )
+            ->andReturnUsing(
+                function ( $text, $source, $target ) use ( $cache ) {
+                    $key = "{$text}|{$source}|{$target}";
+                    return $cache[ $key ] ?? null;
+                }
+            );
+        $mock->shouldReceive( 'get_batch' )->andReturn( [] );
+        $mock->shouldReceive( 'save' )->andReturn( true );
+        return $mock;
     }
 
     /**

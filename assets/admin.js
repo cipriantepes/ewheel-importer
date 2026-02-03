@@ -6,6 +6,8 @@
     'use strict';
 
     var EwheelImporter = {
+        pollInterval: null,
+
         init: function() {
             this.bindEvents();
         },
@@ -20,6 +22,7 @@
 
             var $button = $('#ewheel-run-sync');
             var $status = $('#ewheel-sync-status');
+            var self = this;
 
             $button.prop('disabled', true);
             $status
@@ -35,19 +38,11 @@
                     nonce: ewheelImporter.nonce
                 },
                 success: function(response) {
-                    $button.prop('disabled', false);
-
                     if (response.success) {
-                        $status
-                            .removeClass('syncing error')
-                            .addClass('success')
-                            .text(response.data.message);
-
-                        // Reload page after 2 seconds to show updated last sync time
-                        setTimeout(function() {
-                            location.reload();
-                        }, 2000);
+                        $status.text('Sync started... Waiting for updates.');
+                        self.startPolling($status, $button);
                     } else {
+                        $button.prop('disabled', false);
                         $status
                             .removeClass('syncing success')
                             .addClass('error')
@@ -62,6 +57,51 @@
                         .text(ewheelImporter.strings.error + ' ' + error);
                 }
             });
+        },
+
+        startPolling: function($status, $button) {
+            var self = this;
+            this.pollInterval = setInterval(function() {
+                $.ajax({
+                    url: ewheelImporter.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'ewheel_get_sync_status',
+                        nonce: ewheelImporter.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var data = response.data;
+                            
+                            if (data.status === 'completed') {
+                                clearInterval(self.pollInterval);
+                                $button.prop('disabled', false);
+                                $status
+                                    .removeClass('syncing error')
+                                    .addClass('success')
+                                    .text(ewheelImporter.strings.success + ' Processed: ' + data.processed);
+                                
+                                setTimeout(function() {
+                                    location.reload();
+                                }, 2000);
+
+                            } else if (data.status === 'failed') {
+                                clearInterval(self.pollInterval);
+                                $button.prop('disabled', false);
+                                $status
+                                    .removeClass('syncing success')
+                                    .addClass('error')
+                                    .text('Sync Failed.');
+
+                            } else {
+                                // Still running
+                                var msg = 'Processing... Page: ' + data.page + ' | Products: ' + data.processed;
+                                $status.text(msg);
+                            }
+                        }
+                    }
+                });
+            }, 3000); // Poll every 3 seconds
         },
 
         testConnection: function(e) {

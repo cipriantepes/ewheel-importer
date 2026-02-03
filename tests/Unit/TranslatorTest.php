@@ -24,8 +24,11 @@ class TranslatorTest extends TestCase {
             ->once()
             ->with( 'Electric Scooter', 'en', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate( 'Electric Scooter', 'en' );
 
         $this->assertEquals( 'Trotinetă Electrică', $result );
@@ -40,8 +43,11 @@ class TranslatorTest extends TestCase {
             ->once()
             ->with( 'Patinete Eléctrico', 'es', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate( 'Patinete Eléctrico', 'es' );
 
         $this->assertEquals( 'Trotinetă Electrică', $result );
@@ -54,7 +60,9 @@ class TranslatorTest extends TestCase {
         $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate( '', 'en' );
 
         $this->assertEquals( '', $result );
@@ -67,7 +75,9 @@ class TranslatorTest extends TestCase {
         $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate( '   ', 'en' );
 
         $this->assertEquals( '', $result );
@@ -87,8 +97,11 @@ class TranslatorTest extends TestCase {
             ->once()
             ->with( 'Electric Scooter', 'en', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate_multilingual( $multilingual_text );
 
         $this->assertEquals( 'Trotinetă Electrică', $result );
@@ -107,8 +120,11 @@ class TranslatorTest extends TestCase {
             ->once()
             ->with( 'Patinete Eléctrico', 'es', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate_multilingual( $multilingual_text );
 
         $this->assertEquals( 'Trotinetă Electrică', $result );
@@ -127,8 +143,11 @@ class TranslatorTest extends TestCase {
             ->once()
             ->with( 'Elektroroller', 'de', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate_multilingual( $multilingual_text );
 
         $this->assertEquals( 'Trotinetă Electrică', $result );
@@ -141,14 +160,16 @@ class TranslatorTest extends TestCase {
         $translation_service = MockFactory::translation_service();
         $translation_service->shouldNotReceive( 'translate' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate_multilingual( [] );
 
         $this->assertEquals( '', $result );
     }
 
     /**
-     * Test caching - same text should not be translated twice.
+     * Test caching - same text should be retrieved from repository.
      */
     public function test_caches_translations(): void {
         $translation_service = MockFactory::translation_service();
@@ -156,8 +177,21 @@ class TranslatorTest extends TestCase {
             ->once() // Only called once despite two translate calls
             ->with( 'Electric Scooter', 'en', 'ro' )
             ->andReturn( 'Trotinetă Electrică' );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        // Repository returns null first (not cached), then we save it
+        $repository = Mockery::mock( \Trotibike\EwheelImporter\Repository\TranslationRepository::class );
+        $repository->shouldReceive( 'get' )
+            ->with( 'Electric Scooter', 'en', 'ro' )
+            ->once()
+            ->andReturn( null );
+        $repository->shouldReceive( 'get' )
+            ->with( 'Electric Scooter', 'en', 'ro' )
+            ->once()
+            ->andReturn( 'Trotinetă Electrică' );
+        $repository->shouldReceive( 'save' )->andReturn( true );
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
 
         $result1 = $translator->translate( 'Electric Scooter', 'en' );
         $result2 = $translator->translate( 'Electric Scooter', 'en' );
@@ -175,7 +209,9 @@ class TranslatorTest extends TestCase {
             ->once()
             ->andThrow( new \RuntimeException( 'Translation API error' ) );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $result     = $translator->translate( 'Electric Scooter', 'en' );
 
         // Should return original text on error
@@ -203,8 +239,11 @@ class TranslatorTest extends TestCase {
                     'Durata bateriei',
                 ]
             );
+        $translation_service->shouldReceive( 'get_service_name' )->andReturn( 'mock' );
 
-        $translator = new Translator( $translation_service, 'ro' );
+        $repository = MockFactory::translation_repository();
+
+        $translator = new Translator( $translation_service, $repository, 'ro' );
         $results    = $translator->translate_batch( $texts, 'en' );
 
         $this->assertCount( 3, $results );
@@ -221,6 +260,7 @@ class TranslatorTest extends TestCase {
         $this->expectExceptionMessage( 'Target language is required' );
 
         $translation_service = MockFactory::translation_service();
-        new Translator( $translation_service, '' );
+        $repository          = MockFactory::translation_repository();
+        new Translator( $translation_service, $repository, '' );
     }
 }
