@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Author: Trotibike
  * Author URI: https://trotibike.ro
  * License: GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.1.3');
+define('EWHEEL_IMPORTER_VERSION', '1.1.4');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -179,19 +179,6 @@ final class Ewheel_Importer
 
         // Action Scheduler Hook
         add_action('ewheel_importer_process_batch', [$this, 'process_batch_action'], 10, 3);
-    }
-
-    /**
-     * Handle the batch processing action.
-     *
-     * @param int    $page    Page number.
-     * @param string $sync_id Sync ID.
-     * @param string $since   Since date.
-     */
-    public function process_batch_action($page, $sync_id, $since = '')
-    {
-        $processor = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
-        $processor->process_batch($page, $sync_id, $since);
     }
 
     /**
@@ -446,6 +433,40 @@ final class Ewheel_Importer
             }
         } catch (\Exception $e) {
             error_log('Ewheel Importer Scheduled Sync Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Process a single batch via Action Scheduler.
+     *
+     * @param int    $page    Page Number.
+     * @param string $sync_id Sync ID.
+     * @param string $since   Since date.
+     * @return void
+     */
+    public function process_batch_action(int $page, string $sync_id, string $since): void
+    {
+        try {
+            // Re-instantiate the Batch Processor
+            // We can't use ServiceFactory directly for BatchProcessor as it requires params potentially?
+            // Actually, we need to create it.
+            // But ServiceFactory doesn't have create_batch_processor().
+            // But SyncService uses BatchProcessor.
+            // Let's create it manually or add to ServiceFactory.
+            // For now, manual creation is safer to modify as little as possible.
+            $api_client = ServiceFactory::create_api_client($this->config->get_api_key());
+            $woo_sync = ServiceFactory::create_woo_sync();
+
+            // WE NEED TO LOAD LOGGER!
+            if (!class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
+                require_once EWHEEL_IMPORTER_PATH . 'includes/Log/LiveLogger.php';
+            }
+
+            $processor = new \Trotibike\EwheelImporter\Sync\SyncBatchProcessor($api_client, $woo_sync, $this->config);
+            $processor->process_batch($page, $sync_id, $since);
+
+        } catch (\Exception $e) {
+            error_log('Ewheel Importer Batch Action Error: ' . $e->getMessage());
         }
     }
 
