@@ -27,7 +27,8 @@ class Configuration
         'api_key' => '',
         'translate_api_key' => '',
         'deepl_api_key' => '',
-        'translation_driver' => 'google', // 'google' or 'deepl'
+        'openrouter_api_key' => '',
+        'translation_driver' => 'google', // 'google', 'deepl', 'openrouter'
         'exchange_rate' => 4.97,
         'markup_percent' => 20.0,
         'sync_frequency' => 'daily',
@@ -38,10 +39,11 @@ class Configuration
             'description' => true,
             'short_description' => true,
             'price' => true,
-            'image' => true, // note: singular usage in code might vary, let's stick to key names
+            'images' => true,
             'categories' => true,
             'attributes' => true,
         ],
+        'openrouter_model' => 'google/gemini-flash-1.5',
     ];
 
     /**
@@ -99,7 +101,27 @@ class Configuration
     }
 
     /**
-     * Get translation driver (google/deepl).
+     * Get OpenRouter API key.
+     *
+     * @return string
+     */
+    public function get_openrouter_api_key(): string
+    {
+        return (string) $this->get('openrouter_api_key');
+    }
+
+    /**
+     * Get OpenRouter model.
+     *
+     * @return string
+     */
+    public function get_openrouter_model(): string
+    {
+        return (string) $this->get('openrouter_model');
+    }
+
+    /**
+     * Get translation driver (google/deepl/openrouter).
      *
      * @return string
      */

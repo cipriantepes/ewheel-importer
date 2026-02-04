@@ -88,10 +88,26 @@ $last_sync = $settings['last_sync'];
                                     <option value="deepl" <?php selected($settings['translation_driver'], 'deepl'); ?>>
                                         <?php esc_html_e('DeepL Translate', 'ewheel-importer'); ?>
                                     </option>
+                                    <option value="openrouter" <?php selected($settings['translation_driver'], 'openrouter'); ?>>
+                                        <?php esc_html_e('OpenRouter (LLMs)', 'ewheel-importer'); ?>
+                                    </option>
                                 </select>
                                 <p class="description">
                                     <?php esc_html_e('Choose which service to use for translations', 'ewheel-importer'); ?>
                                 </p>
+                                <script>
+                                    jQuery(document).ready(function($) {
+                                        function toggleTranslationFields() {
+                                            var driver = $('#ewheel_importer_translation_driver').val();
+                                            $('#ewheel_importer_translate_api_key').closest('tr').toggle(driver === 'google');
+                                            $('#ewheel_importer_deepl_api_key').closest('tr').toggle(driver === 'deepl');
+                                            $('#ewheel_importer_openrouter_api_key').closest('tr').toggle(driver === 'openrouter');
+                                            $('#ewheel_importer_openrouter_model').closest('tr').toggle(driver === 'openrouter');
+                                        }
+                                        $('#ewheel_importer_translation_driver').change(toggleTranslationFields);
+                                        toggleTranslationFields();
+                                    });
+                                </script>
                             </td>
                         </tr>
                         <tr>
@@ -107,6 +123,38 @@ $last_sync = $settings['last_sync'];
                                     class="regular-text" />
                                 <p class="description">
                                     <?php esc_html_e('API key for DeepL (Free or Pro)', 'ewheel-importer'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="ewheel_importer_openrouter_api_key">
+                                    <?php esc_html_e('OpenRouter API Key', 'ewheel-importer'); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <input type="password" id="ewheel_importer_openrouter_api_key"
+                                    name="ewheel_importer_openrouter_api_key"
+                                    value="<?php echo esc_attr($settings['openrouter_api_key'] ?? ''); ?>"
+                                    class="regular-text" />
+                                <p class="description">
+                                    <?php esc_html_e('API key from openrouter.ai', 'ewheel-importer'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="ewheel_importer_openrouter_model">
+                                    <?php esc_html_e('OpenRouter Model', 'ewheel-importer'); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <input type="text" id="ewheel_importer_openrouter_model"
+                                    name="ewheel_importer_openrouter_model"
+                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-flash-1.5'); ?>"
+                                    class="regular-text" />
+                                <p class="description">
+                                    <?php esc_html_e('Model ID (e.g. google/gemini-flash-1.5, meta-llama/llama-3-8b-instruct)', 'ewheel-importer'); ?>
                                 </p>
                             </td>
                         </tr>
