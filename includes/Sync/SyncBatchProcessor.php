@@ -117,6 +117,13 @@ class SyncBatchProcessor
             $current_processed = count($products);
             $total_processed = $processed + $current_processed;
 
+            // SAFETY: Prevent infinite loops if API is misbehaving
+            if ($page > 500) {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("Safety Stop: Max pages (500) reached. Stopping.", 'error');
+                $this->finish_sync($sync_id);
+                return;
+            }
+
             if ($current_processed >= self::BATCH_SIZE && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
                     time() + 5, // 5 seconds delay to be nice to the server

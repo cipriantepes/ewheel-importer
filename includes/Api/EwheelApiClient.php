@@ -135,6 +135,28 @@ class EwheelApiClient
                 $body,
                 $this->get_headers()
             );
+
+            // Deep debugging
+            $type = gettype($response);
+            $count = is_array($response) ? count($response) : 'N/A';
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response Type: $type. Count: $count", 'info');
+
+            if (is_array($response) && !empty($response)) {
+                // Check if it's a wrapper object (associative array) or a list (indexed array)
+                // If the keys are strings, it's an object/wrapper.
+                $keys = array_keys($response);
+                if (count($keys) > 0 && is_string($keys[0])) {
+                    \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response seems to be an OBJECT, not specific list. Keys: " . implode(', ', array_slice($keys, 0, 5)), 'warning');
+                } else {
+                    // It's a list
+                    $first_item = $response[0];
+                    $first_id = is_array($first_item) ? ($first_item['Reference'] ?? ($first_item['Id'] ?? 'Unknown')) : 'Unknown';
+                    \Trotibike\EwheelImporter\Log\LiveLogger::log("First Item ID: $first_id", 'info');
+                }
+            } else {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response is empty or not an array.", 'warning');
+            }
+
             return $response;
         } catch (\Exception $e) {
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Error: " . $e->getMessage(), 'error');
