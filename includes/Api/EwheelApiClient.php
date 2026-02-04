@@ -138,7 +138,7 @@ class EwheelApiClient
      */
     public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
     {
-        $body = array_merge(
+        $queryParams = array_merge(
             [
                 'Page' => $page,
                 'PageSize' => $page_size,
@@ -146,14 +146,13 @@ class EwheelApiClient
             $filters
         );
 
-        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
+        $url = add_query_arg($queryParams, self::BASE_URL . self::PRODUCTS_ENDPOINT);
 
-        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
+        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: GET $url (Page: $page)", 'info');
 
         try {
-            $response = $this->http_client->post(
+            $response = $this->http_client->get(
                 $url,
-                $body,
                 $this->get_headers()
             );
 
