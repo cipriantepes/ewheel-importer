@@ -119,6 +119,11 @@ class Translator
             return '';
         }
 
+        // OPTIMIZATION: Check if target language is already present natively
+        if (isset($multilingual_text[$this->target_language]) && !empty(trim($multilingual_text[$this->target_language]))) {
+            return $multilingual_text[$this->target_language];
+        }
+
         $source_lang = null;
         $text = null;
 
