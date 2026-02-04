@@ -90,7 +90,7 @@ class SyncBatchProcessor
             if (!empty($since)) {
                 $products = $this->api_client->get_products_since($since, $page, self::BATCH_SIZE);
             } else {
-                $products = $this->api_client->get_products($page, self::BATCH_SIZE, ['Active' => true]);
+                $products = $this->api_client->get_products($page, self::BATCH_SIZE, ['Active' => 1]);
             }
 
             if (empty($products)) {

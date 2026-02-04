@@ -138,7 +138,7 @@ class EwheelApiClient
      */
     public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
     {
-        $queryParams = array_merge(
+        $body = array_merge(
             [
                 'Page' => $page,
                 'PageSize' => $page_size,
@@ -146,21 +146,31 @@ class EwheelApiClient
             $filters
         );
 
-        $url = add_query_arg($queryParams, self::BASE_URL . self::PRODUCTS_ENDPOINT);
+        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
 
-        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: GET $url (Page: $page)", 'info');
+        // DEBUG LOG
+        error_log("Ewheel API Request (POST): $url " . wp_json_encode($body));
+        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
 
         try {
-            $response = $this->http_client->get(
+            $response = $this->http_client->post(
                 $url,
+                $body,
                 $this->get_headers()
             );
+
+            // DEBUG LOG
+            error_log("Ewheel API Response Raw: " . print_r($response, true));
 
             // Extract data from wrapper
             $products = $this->extract_data($response);
 
             $count = count($products);
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
+
+            if ($count === 0) {
+                error_log("Ewheel API WARNING: 0 products returned. Raw Data Dump: " . print_r($response, true));
+            }
 
             if (!empty($products)) {
                 $first_item = $products[0];
