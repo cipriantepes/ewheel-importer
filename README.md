@@ -8,6 +8,7 @@ A WordPress plugin to import products from the ewheel.es API into WooCommerce wi
 - **Smart Translation**:
     - Supports **Google Translate** and **DeepL**
     - **Persistent Caching**: Saves translations to database to minimize API costs
+- **WooCommerce Compatible**: Tested with 10.4+ and HPOS (High-Performance Order Storage) compatible
 - **Price Conversion**: Converts EUR prices to RON with configurable exchange rate and markup percentage
 - **Sync Controls**:
     - **Test Limit**: Limit the number of products synced for testing
