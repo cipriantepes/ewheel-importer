@@ -56,23 +56,33 @@ class WooCommerceSync
     private $image_service;
 
     /**
+     * Category Repository.
+     *
+     * @var \Trotibike\EwheelImporter\Repository\CategoryRepository
+     */
+    private $category_repository;
+
+    /**
      * Constructor.
      *
-     * @param EwheelApiClient                                    $ewheel_client     The ewheel API client.
-     * @param ProductTransformer                                 $transformer       The product transformer.
-     * @param \Trotibike\EwheelImporter\Service\AttributeService $attribute_service Attribute service.
-     * @param \Trotibike\EwheelImporter\Service\VariationService $variation_service Variation service.
-     * @param \Trotibike\EwheelImporter\Service\ImageService     $image_service     Image service.
+     * @param EwheelApiClient                                     $ewheel_client       The ewheel API client.
+     * @param ProductTransformer                                  $transformer         The product transformer.
+     * @param \Trotibike\EwheelImporter\Repository\CategoryRepository $category_repository Category repository.
+     * @param \Trotibike\EwheelImporter\Service\AttributeService  $attribute_service   Attribute service.
+     * @param \Trotibike\EwheelImporter\Service\VariationService  $variation_service   Variation service.
+     * @param \Trotibike\EwheelImporter\Service\ImageService      $image_service       Image service.
      */
     public function __construct(
         EwheelApiClient $ewheel_client,
         ProductTransformer $transformer,
+        \Trotibike\EwheelImporter\Repository\CategoryRepository $category_repository,
         \Trotibike\EwheelImporter\Service\AttributeService $attribute_service,
         \Trotibike\EwheelImporter\Service\VariationService $variation_service,
         \Trotibike\EwheelImporter\Service\ImageService $image_service
     ) {
         $this->ewheel_client = $ewheel_client;
         $this->transformer = $transformer;
+        $this->category_repository = $category_repository;
         $this->attribute_service = $attribute_service;
         $this->variation_service = $variation_service;
         $this->image_service = $image_service;
@@ -290,6 +300,13 @@ class WooCommerceSync
      */
     public function process_ewheel_products_batch(array $ewheel_products): array
     {
+        // FIX: Ensure category map is loaded for this batch
+        // In background process, the transformer instance is fresh and empty
+        if ($this->category_repository) {
+            $category_map = $this->category_repository->get_mapping();
+            $this->transformer->set_category_map($category_map);
+        }
+
         // Transform products
         $woo_products = $this->transformer->transform_batch($ewheel_products);
 

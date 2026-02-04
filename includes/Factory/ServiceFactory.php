@@ -204,6 +204,7 @@ class ServiceFactory
             fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\WooCommerceSync(
                 $c->get(EwheelApiClient::class),
                 $c->get(ProductTransformer::class),
+                $c->get(CategoryRepository::class),
                 $c->get(\Trotibike\EwheelImporter\Service\AttributeService::class),
                 $c->get(\Trotibike\EwheelImporter\Service\VariationService::class),
                 $c->get(ImageService::class)
