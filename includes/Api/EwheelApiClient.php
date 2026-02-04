@@ -78,14 +78,16 @@ class EwheelApiClient
      */
     public function get_categories(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE): array
     {
-        $body = [
-            'Page'     => $page,
-            'PageSize' => $page_size,
-        ];
+        $url = add_query_arg(
+            [
+                'Page' => $page,
+                'PageSize' => $page_size,
+            ],
+            self::BASE_URL . self::CATEGORIES_ENDPOINT
+        );
 
-        $response = $this->http_client->post(
-            self::BASE_URL . self::CATEGORIES_ENDPOINT,
-            $body,
+        $response = $this->http_client->get(
+            $url,
             $this->get_headers()
         );
 
@@ -138,7 +140,7 @@ class EwheelApiClient
     {
         $body = array_merge(
             [
-                'Page'     => $page,
+                'Page' => $page,
                 'PageSize' => $page_size,
             ],
             $filters
@@ -239,9 +241,9 @@ class EwheelApiClient
     private function get_headers(): array
     {
         return [
-            'X-API-KEY'    => $this->api_key,
+            'X-API-KEY' => $this->api_key,
             'Content-Type' => 'application/json',
-            'Accept'       => 'application/json',
+            'Accept' => 'application/json',
         ];
     }
 

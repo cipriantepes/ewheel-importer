@@ -25,7 +25,7 @@ mkdir -p "build/$PLUGIN_SLUG"
 
 # Export files to build directory (mocking git archive for local folder)
 echo "Copying files..."
-rsync -av --exclude='build' --exclude='.git' --exclude='.gitignore' --exclude='tests' --exclude='bin' --exclude='phpunit.xml' --exclude='composer.lock' --exclude='vendor' . "build/$PLUGIN_SLUG"
+rsync -av --exclude='build' --exclude='.git' --exclude='.gitignore' --exclude='tests' --exclude='bin' --exclude='phpunit.xml' --exclude='composer.lock' --exclude='vendor' --exclude='*.zip' . "build/$PLUGIN_SLUG"
 
 # Install production dependencies
 echo "Installing production dependencies..."
