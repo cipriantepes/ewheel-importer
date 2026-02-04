@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version: 1.1.1
+ * Version: 1.1.2
  * Author: Trotibike
  * Author URI: https://trotibike.ro
  * License: GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.1.1');
+define('EWHEEL_IMPORTER_VERSION', '1.1.2');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -167,6 +167,7 @@ final class Ewheel_Importer
         add_action('wp_ajax_ewheel_get_sync_status', [$this, 'ajax_get_sync_status']);
         add_action('wp_ajax_ewheel_stop_sync', [$this, 'ajax_stop_sync']);
         add_action('wp_ajax_ewheel_test_connection', [$this, 'ajax_test_connection']);
+        add_action('wp_ajax_ewheel_get_logs', [$this, 'ajax_get_logs']);
 
         // Cron
         add_action('ewheel_importer_cron_sync', [$this, 'run_scheduled_sync']);
@@ -444,8 +445,28 @@ final class Ewheel_Importer
                 $sync_service->sync_all();
             }
         } catch (\Exception $e) {
-            error_log('Ewheel Importer scheduled sync failed: ' . $e->getMessage());
+            error_log('Ewheel Importer Scheduled Sync Error: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * AJAX Get Logs.
+     *
+     * @return void
+     */
+    public function ajax_get_logs(): void
+    {
+        $nonce = $_POST['nonce'] ?? '';
+        if (!wp_verify_nonce($nonce, 'ewheel_importer_nonce')) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+        }
+
+        // Ensure Logger is loaded if autoloader failed (fallback)
+        if (!class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
+            require_once EWHEEL_IMPORTER_PATH . 'includes/Log/LiveLogger.php';
+        }
+
+        wp_send_json_success(\Trotibike\EwheelImporter\Log\LiveLogger::get_logs());
     }
 
     /**

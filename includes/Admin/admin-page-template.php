@@ -297,6 +297,13 @@ $last_sync = $settings['last_sync'];
                     </button>
                     <span id="ewheel-sync-status"></span>
                 </p>
+
+                <hr style="margin: 20px 0;">
+                
+                <h3><?php esc_html_e('Activity Log', 'ewheel-importer'); ?></h3>
+                <div id="ewheel-activity-log" style="background: #f0f0f1; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; font-size: 12px; margin-top: 10px;">
+                    <p><?php esc_html_e('Waiting for logs...', 'ewheel-importer'); ?></p>
+                </div>
                 <?php if ($last_sync): ?>
                     <p class="description">
                         <?php

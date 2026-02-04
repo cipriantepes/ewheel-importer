@@ -125,11 +125,21 @@ class EwheelApiClient
             $filters
         );
 
-        return $this->http_client->post(
-            self::BASE_URL . self::PRODUCTS_ENDPOINT,
-            $body,
-            $this->get_headers()
-        );
+        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
+
+        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
+
+        try {
+            $response = $this->http_client->post(
+                $url,
+                $body,
+                $this->get_headers()
+            );
+            return $response;
+        } catch (\Exception $e) {
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("API Error: " . $e->getMessage(), 'error');
+            throw $e;
+        }
     }
 
     /**

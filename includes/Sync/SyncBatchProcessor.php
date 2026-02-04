@@ -94,27 +94,18 @@ class SyncBatchProcessor
             }
 
             if (empty($products)) {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("Batch Info: No products returned from API. Batch complete (empty response).", 'info');
                 $this->finish_sync($sync_id);
                 return;
             }
 
-            // Process products via WooCommerceSync
-            // We need to expose a method in WooCommerceSync to process raw ewheel products directly
-            // or we use the transformer here.
-            // Let's modify WooCommerceSync to expose `process_ewheel_products()` or similar.
-            // For now, I will assume we can access the transformer via the woo_sync or just instantiate one, 
-            // BUT woo_sync already has it.
-            // The existing `sync_products` in WooCommerceSync fetches internally. We need a method that accepts products.
-
-            // Let's look at WooCommerceSync::process_product_batch() - it takes WOO products.
-            // We need to transform first.
-            // The transformer is private in WooCommerceSync. Ideally, we should inject the Transformer here too.
-            // But for now, let's assume we update WooCommerceSync to have a public `process_ewheel_products_batch` method.
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("Processing batch. Page: $page. Products found: " . count($products), 'info');
 
             // Apply limit to currenct batch if needed
             if ($limit > 0 && ($processed + count($products)) > $limit) {
                 $remaining = $limit - $processed;
                 $products = array_slice($products, 0, $remaining);
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("Limit reached. Truncating batch to $remaining items.", 'info');
             }
 
             $this->woo_sync->process_ewheel_products_batch($products);
@@ -137,10 +128,12 @@ class SyncBatchProcessor
                     ]
                 );
             } else {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("Sync Finished. Total processed: $total_processed", 'success');
                 $this->finish_sync($sync_id);
             }
 
         } catch (\Exception $e) {
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("Batch Error (Page $page): " . $e->getMessage(), 'error');
             error_log("Ewheel Importer Batch Error (Page $page): " . $e->getMessage());
             // Optionally update sync status to failed
         }

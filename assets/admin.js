@@ -189,6 +189,35 @@
 
     $(document).ready(function () {
         EwheelImporter.init();
+
+        // Log polling
+        function pollLogs() {
+            var $logConsole = $('#ewheel-activity-log');
+            if ($logConsole.length === 0) return;
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_logs',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success && response.data) {
+                        var logs = response.data;
+                        var html = '';
+                        logs.forEach(function (log) {
+                            var color = log.type === 'error' ? 'red' : (log.type === 'success' ? 'green' : 'black');
+                            html += '<div style="color:' + color + '; margin-bottom: 2px;">[' + log.time + '] ' + log.message + '</div>';
+                        });
+                        $logConsole.html(html);
+                    }
+                }
+            });
+        }
+
+        setInterval(pollLogs, 2000);
+        pollLogs();
     });
 
 })(jQuery);
