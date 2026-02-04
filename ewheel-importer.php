@@ -12,7 +12,7 @@
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * WC requires at least: 7.0
- * WC tested up to: 8.5
+ * WC tested up to: 10.4
  *
  * @package Trotibike\EwheelImporter
  */
@@ -52,7 +52,7 @@ final class Ewheel_Importer
      * GitHub Repository URL.
      * Replace this with your actual GitHub repository URL.
      */
-    private const GITHUB_REPO = 'https://github.com/trotibike/ewheel-importer';
+    private const GITHUB_REPO = 'https://github.com/cipriantepes/ewheel-importer';
 
     /**
      * Single instance of the class.
