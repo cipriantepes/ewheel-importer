@@ -29,10 +29,10 @@ class CSRFProtectionTest extends SecurityTestCase {
                     $action_name = $match[1];
                     $method_name = $match[2];
 
-                    // Check if the method verifies nonce
-                    if ( preg_match( '/function\s+' . preg_quote( $method_name, '/' ) . '\s*\([^)]*\)\s*(?::\s*\w+\s*)?\{([^}]+(?:\{[^}]*\}[^}]*)*)\}/s', $content, $method_match ) ) {
-                        $method_body = $method_match[1];
+                    // Extract method body using brace counting for proper nesting
+                    $method_body = $this->extract_method_body( $content, $method_name );
 
+                    if ( $method_body !== null ) {
                         $has_nonce_check = preg_match( '/check_ajax_referer|wp_verify_nonce/', $method_body );
 
                         if ( ! $has_nonce_check ) {
@@ -68,6 +68,38 @@ class CSRFProtectionTest extends SecurityTestCase {
             $violations,
             'Found AJAX handlers without nonce verification: ' . $this->format_ajax_violations( $violations )
         );
+    }
+
+    /**
+     * Extract the body of a method using brace counting.
+     *
+     * @param string $content     File content.
+     * @param string $method_name Method name to find.
+     * @return string|null Method body or null if not found.
+     */
+    private function extract_method_body( string $content, string $method_name ): ?string {
+        // Find the function declaration
+        $pattern = '/function\s+' . preg_quote( $method_name, '/' ) . '\s*\([^)]*\)\s*(?::\s*\w+\s*)?\{/s';
+        if ( ! preg_match( $pattern, $content, $match, PREG_OFFSET_CAPTURE ) ) {
+            return null;
+        }
+
+        $start = $match[0][1] + strlen( $match[0][0] ) - 1; // Position of opening brace
+        $brace_count = 1;
+        $pos         = $start + 1;
+        $len         = strlen( $content );
+
+        while ( $pos < $len && $brace_count > 0 ) {
+            $char = $content[ $pos ];
+            if ( $char === '{' ) {
+                $brace_count++;
+            } elseif ( $char === '}' ) {
+                $brace_count--;
+            }
+            $pos++;
+        }
+
+        return substr( $content, $start + 1, $pos - $start - 2 );
     }
 
     /**

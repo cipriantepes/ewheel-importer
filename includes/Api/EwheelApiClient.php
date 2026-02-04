@@ -34,6 +34,11 @@ class EwheelApiClient
     private const DEFAULT_PAGE_SIZE = 50;
 
     /**
+     * Maximum pages to fetch (safety limit to prevent infinite loops).
+     */
+    private const MAX_PAGES = 100;
+
+    /**
      * The API key.
      *
      * @var string
@@ -69,22 +74,22 @@ class EwheelApiClient
      *
      * @param int $page      The page number (0-indexed).
      * @param int $page_size The number of items per page.
-     * @return array The categories.
+     * @return array The categories (extracted from Data wrapper).
      */
     public function get_categories(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE): array
     {
-        $url = add_query_arg(
-            [
-                'Page' => $page,
-                'PageSize' => $page_size,
-            ],
-            self::BASE_URL . self::CATEGORIES_ENDPOINT
-        );
+        $body = [
+            'Page'     => $page,
+            'PageSize' => $page_size,
+        ];
 
-        return $this->http_client->get(
-            $url,
+        $response = $this->http_client->post(
+            self::BASE_URL . self::CATEGORIES_ENDPOINT,
+            $body,
             $this->get_headers()
         );
+
+        return $this->extract_data($response);
     }
 
     /**
@@ -100,8 +105,22 @@ class EwheelApiClient
 
         do {
             $categories = $this->get_categories($page, $page_size);
+
+            if (empty($categories)) {
+                break;
+            }
+
             $all_categories = array_merge($all_categories, $categories);
             $page++;
+
+            // Safety limit to prevent infinite loops
+            if ($page >= self::MAX_PAGES) {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                    "Warning: Reached max page limit ({$page}) for categories. Stopping pagination.",
+                    'warning'
+                );
+                break;
+            }
         } while (count($categories) >= $page_size);
 
         return $all_categories;
@@ -113,13 +132,13 @@ class EwheelApiClient
      * @param int   $page      The page number (0-indexed).
      * @param int   $page_size The number of items per page.
      * @param array $filters   Optional filters (active, hasImages, hasVariants, category, etc).
-     * @return array The products.
+     * @return array The products (extracted from Data wrapper).
      */
     public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
     {
         $body = array_merge(
             [
-                'Page' => $page,
+                'Page'     => $page,
                 'PageSize' => $page_size,
             ],
             $filters
@@ -136,28 +155,19 @@ class EwheelApiClient
                 $this->get_headers()
             );
 
-            // Deep debugging
-            $type = gettype($response);
-            $count = is_array($response) ? count($response) : 'N/A';
-            \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response Type: $type. Count: $count", 'info');
+            // Extract data from wrapper
+            $products = $this->extract_data($response);
 
-            if (is_array($response) && !empty($response)) {
-                // Check if it's a wrapper object (associative array) or a list (indexed array)
-                // If the keys are strings, it's an object/wrapper.
-                $keys = array_keys($response);
-                if (count($keys) > 0 && is_string($keys[0])) {
-                    \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response seems to be an OBJECT, not specific list. Keys: " . implode(', ', array_slice($keys, 0, 5)), 'warning');
-                } else {
-                    // It's a list
-                    $first_item = $response[0];
-                    $first_id = is_array($first_item) ? ($first_item['Reference'] ?? ($first_item['Id'] ?? 'Unknown')) : 'Unknown';
-                    \Trotibike\EwheelImporter\Log\LiveLogger::log("First Item ID: $first_id", 'info');
-                }
-            } else {
-                \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response is empty or not an array.", 'warning');
+            $count = count($products);
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
+
+            if (!empty($products)) {
+                $first_item = $products[0];
+                $first_id = is_array($first_item) ? ($first_item['Reference'] ?? ($first_item['Id'] ?? 'Unknown')) : 'Unknown';
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("First Item ID: $first_id", 'info');
             }
 
-            return $response;
+            return $products;
         } catch (\Exception $e) {
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Error: " . $e->getMessage(), 'error');
             throw $e;
@@ -195,9 +205,28 @@ class EwheelApiClient
 
         do {
             $products = $this->get_products($page, $page_size, $filters);
+
+            if (empty($products)) {
+                break;
+            }
+
             $all_products = array_merge($all_products, $products);
             $page++;
+
+            // Safety limit to prevent infinite loops
+            if ($page >= self::MAX_PAGES) {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                    "Warning: Reached max page limit ({$page}) for products. Stopping pagination.",
+                    'warning'
+                );
+                break;
+            }
         } while (count($products) >= $page_size);
+
+        \Trotibike\EwheelImporter\Log\LiveLogger::log(
+            "Fetched " . count($all_products) . " total products in {$page} pages",
+            'success'
+        );
 
         return $all_products;
     }
@@ -210,9 +239,49 @@ class EwheelApiClient
     private function get_headers(): array
     {
         return [
-            'X-API-KEY' => $this->api_key,
+            'X-API-KEY'    => $this->api_key,
             'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
+            'Accept'       => 'application/json',
         ];
+    }
+
+    /**
+     * Extract data from API response wrapper.
+     *
+     * The ewheel.es API returns responses in a wrapper format:
+     * {
+     *     "Data": [...],      // Actual items
+     *     "Ok": true,
+     *     "Type": "Success",
+     *     "Code": 0,
+     *     "Message": "",
+     *     "StackTrace": null
+     * }
+     *
+     * @param array $response The raw API response.
+     * @return array The extracted data array.
+     */
+    private function extract_data(array $response): array
+    {
+        // Check if response has the wrapper structure
+        if (isset($response['Data']) && is_array($response['Data'])) {
+            // Check for API errors in the wrapper
+            if (isset($response['Ok']) && $response['Ok'] === false) {
+                $message = $response['Message'] ?? 'Unknown API error';
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("API Error: {$message}", 'error');
+                throw new \RuntimeException("API Error: {$message}");
+            }
+
+            return $response['Data'];
+        }
+
+        // Fallback: if response is already a direct array of items (indexed array)
+        // This handles cases where the response might not have the wrapper
+        if (!empty($response) && isset($response[0])) {
+            return $response;
+        }
+
+        // Empty or unexpected response
+        return [];
     }
 }

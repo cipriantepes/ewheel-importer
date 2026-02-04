@@ -237,11 +237,22 @@ class WooCommerceSync
         // Get modified products
         $ewheel_products = [];
         $page = 0;
+        $max_pages = 100; // Safety limit
 
         do {
             $products = $this->ewheel_client->get_products_since($since_date, $page);
+
+            if (empty($products)) {
+                break;
+            }
+
             $ewheel_products = array_merge($ewheel_products, $products);
             $page++;
+
+            // Safety limit to prevent infinite loops
+            if ($page >= $max_pages) {
+                break;
+            }
         } while (count($products) >= 50);
 
         if (empty($ewheel_products)) {

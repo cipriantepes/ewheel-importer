@@ -192,11 +192,22 @@ class SyncService {
     private function fetch_products_since( string $since ): array {
         $all_products = [];
         $page         = 0;
+        $max_pages    = 100; // Safety limit
 
         do {
-            $products     = $this->api_client->get_products_since( $since, $page );
+            $products = $this->api_client->get_products_since( $since, $page );
+
+            if ( empty( $products ) ) {
+                break;
+            }
+
             $all_products = array_merge( $all_products, $products );
             $page++;
+
+            // Safety limit to prevent infinite loops
+            if ( $page >= $max_pages ) {
+                break;
+            }
         } while ( count( $products ) >= self::BATCH_SIZE );
 
         return $all_products;

@@ -64,3 +64,61 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
         return json_encode( $data, $options, $depth );
     }
 }
+
+if ( ! function_exists( 'add_query_arg' ) ) {
+    function add_query_arg( $args, $url = '' ) {
+        if ( is_array( $args ) ) {
+            $query = http_build_query( $args );
+            $separator = strpos( $url, '?' ) !== false ? '&' : '?';
+            return $url . $separator . $query;
+        }
+        return $url;
+    }
+}
+
+if ( ! function_exists( 'get_transient' ) ) {
+    function get_transient( $transient ) {
+        global $wp_transients;
+        if ( ! isset( $wp_transients ) ) {
+            $wp_transients = [];
+        }
+        return $wp_transients[ $transient ] ?? false;
+    }
+}
+
+if ( ! function_exists( 'set_transient' ) ) {
+    function set_transient( $transient, $value, $expiration = 0 ) {
+        global $wp_transients;
+        if ( ! isset( $wp_transients ) ) {
+            $wp_transients = [];
+        }
+        $wp_transients[ $transient ] = $value;
+        return true;
+    }
+}
+
+if ( ! function_exists( 'delete_transient' ) ) {
+    function delete_transient( $transient ) {
+        global $wp_transients;
+        if ( ! isset( $wp_transients ) ) {
+            $wp_transients = [];
+        }
+        unset( $wp_transients[ $transient ] );
+        return true;
+    }
+}
+
+if ( ! function_exists( 'current_time' ) ) {
+    function current_time( $type, $gmt = 0 ) {
+        switch ( $type ) {
+            case 'mysql':
+                return gmdate( 'Y-m-d H:i:s' );
+            case 'timestamp':
+                return time();
+            case 'H:i:s':
+                return gmdate( 'H:i:s' );
+            default:
+                return gmdate( $type );
+        }
+    }
+}
