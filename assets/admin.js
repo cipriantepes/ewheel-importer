@@ -8,6 +8,7 @@
     var EwheelImporter = {
         pollInterval: null,
         currentProfileId: null,
+        currentSyncId: null,
 
         init: function () {
             this.bindEvents();
@@ -40,12 +41,19 @@
                 },
                 success: function (response) {
                     if (response.success && response.data && response.data.status) {
-                        var status = response.data.status;
+                        var data = response.data;
+                        var status = data.status;
+
+                        // Store sync_id for cancel operations
+                        if (data.id) {
+                            self.currentSyncId = data.id;
+                        }
+
                         if (status === 'running' || status === 'pausing') {
-                            self.updateSyncUI('running', response.data);
+                            self.updateSyncUI('running', data);
                             self.startPolling();
                         } else if (status === 'paused') {
-                            self.updateSyncUI('paused', response.data);
+                            self.updateSyncUI('paused', data);
                         }
                     }
                 }
@@ -229,7 +237,8 @@
                 type: 'POST',
                 data: {
                     action: 'ewheel_stop_sync',
-                    nonce: ewheelImporter.nonce
+                    nonce: ewheelImporter.nonce,
+                    sync_id: this.currentSyncId || ''
                 },
                 success: function (response) {
                     if (!response.success) {
@@ -261,12 +270,18 @@
                             var data = response.data;
                             var status = data.status;
 
+                            // Store sync_id for cancel operations
+                            if (data.id) {
+                                self.currentSyncId = data.id;
+                            }
+
                             self.updateSyncUI(status, data);
 
                             // Stop polling on terminal states
                             if (status === 'completed' || status === 'failed' || status === 'stopped' || status === 'paused') {
                                 clearInterval(self.pollInterval);
                                 self.pollInterval = null;
+                                self.currentSyncId = null;
 
                                 // Reload page on completion after a delay
                                 if (status === 'completed') {

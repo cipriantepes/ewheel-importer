@@ -801,6 +801,7 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                             <th><?php esc_html_e('Updated', 'ewheel-importer'); ?></th>
                             <th><?php esc_html_e('Failed', 'ewheel-importer'); ?></th>
                             <th><?php esc_html_e('Duration', 'ewheel-importer'); ?></th>
+                            <th><?php esc_html_e('Actions', 'ewheel-importer'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -840,6 +841,18 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                         echo '&mdash;';
                                     }
                                     ?>
+                                </td>
+                                <td>
+                                    <?php if (in_array($record['status'], ['running', 'paused'], true)): ?>
+                                        <button type="button"
+                                                class="button button-small ewheel-history-cancel-btn"
+                                                data-sync-id="<?php echo esc_attr($record['sync_id']); ?>"
+                                                data-profile-id="<?php echo esc_attr($record['profile_id'] ?? ''); ?>">
+                                            <?php esc_html_e('Cancel', 'ewheel-importer'); ?>
+                                        </button>
+                                    <?php else: ?>
+                                        &mdash;
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -996,6 +1009,51 @@ jQuery(document).ready(function($) {
     // Refresh history
     $('#ewheel-refresh-history').on('click', function() {
         location.reload();
+    });
+
+    // Cancel sync from history table
+    $(document).on('click', '.ewheel-history-cancel-btn', function() {
+        var $btn = $(this);
+        var syncId = $btn.data('sync-id');
+        var profileId = $btn.data('profile-id');
+
+        if (!confirm('<?php esc_html_e('Are you sure you want to cancel this sync?', 'ewheel-importer'); ?>')) {
+            return;
+        }
+
+        $btn.prop('disabled', true).text('<?php esc_html_e('Cancelling...', 'ewheel-importer'); ?>');
+
+        $.ajax({
+            url: ewheelImporter.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'ewheel_stop_sync',
+                nonce: ewheelImporter.nonce,
+                sync_id: syncId,
+                profile_id: profileId || null
+            },
+            success: function(response) {
+                if (response.success) {
+                    // Update the status badge in the same row
+                    $btn.closest('tr').find('.ewheel-status-badge')
+                        .removeClass('running paused')
+                        .addClass('stopping')
+                        .text('<?php esc_html_e('Stopping', 'ewheel-importer'); ?>');
+                    $btn.text('<?php esc_html_e('Stopping...', 'ewheel-importer'); ?>');
+                    // Reload after a short delay to show updated status
+                    setTimeout(function() {
+                        location.reload();
+                    }, 3000);
+                } else {
+                    alert('<?php esc_html_e('Error:', 'ewheel-importer'); ?> ' + response.data.message);
+                    $btn.prop('disabled', false).text('<?php esc_html_e('Cancel', 'ewheel-importer'); ?>');
+                }
+            },
+            error: function() {
+                alert('<?php esc_html_e('Network error. Please try again.', 'ewheel-importer'); ?>');
+                $btn.prop('disabled', false).text('<?php esc_html_e('Cancel', 'ewheel-importer'); ?>');
+            }
+        });
     });
 
     // Persistent logs
