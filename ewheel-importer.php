@@ -219,7 +219,7 @@ final class Ewheel_Importer
         register_deactivation_hook(EWHEEL_IMPORTER_FILE, [$this, 'deactivate']);
 
         // Action Scheduler Hook
-        add_action('ewheel_importer_process_batch', [$this, 'process_batch_action'], 10, 3);
+        add_action('ewheel_importer_process_batch', [$this, 'process_batch_action'], 10, 4);
     }
 
     /**
@@ -447,15 +447,18 @@ final class Ewheel_Importer
         $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
 
         if (empty($sync_id)) {
-            // Try to get running sync from status
+            // Try to get running or pausing sync from status
             $status = get_option($status_key, []);
-            if (!empty($status['id']) && $status['status'] === 'running') {
+            $active_statuses = ['running', 'pausing'];
+            if (!empty($status['id']) && in_array($status['status'], $active_statuses, true)) {
                 $sync_id = $status['id'];
             }
         }
 
         if (!empty($sync_id)) {
             update_option('ewheel_importer_stop_sync_' . $sync_id, true);
+            // Also clear any pause flag so stop takes precedence
+            delete_option('ewheel_importer_pause_sync_' . $sync_id);
 
             // Update status immediately to reflect stopping
             $status = get_option($status_key, []);
@@ -594,12 +597,13 @@ final class Ewheel_Importer
     /**
      * Process a single batch via Action Scheduler.
      *
-     * @param int    $page    Page Number.
-     * @param string $sync_id Sync ID.
-     * @param string $since   Since date.
+     * @param int      $page       Page Number.
+     * @param string   $sync_id    Sync ID.
+     * @param string   $since      Since date.
+     * @param int|null $profile_id Profile ID (null for default).
      * @return void
      */
-    public function process_batch_action(int $page, string $sync_id, string $since): void
+    public function process_batch_action(int $page, string $sync_id, string $since, ?int $profile_id = null): void
     {
         try {
             // WE NEED TO LOAD LOGGER!
@@ -610,7 +614,7 @@ final class Ewheel_Importer
             $container = ServiceFactory::build_container();
             $processor = $container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
 
-            $processor->process_batch($page, $sync_id, $since);
+            $processor->process_batch($page, $sync_id, $since, $profile_id);
 
         } catch (\Exception $e) {
             error_log('Ewheel Importer Batch Action Error: ' . $e->getMessage());
