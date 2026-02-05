@@ -87,8 +87,23 @@ class WPHttpClient implements HttpClientInterface {
         $status_code = wp_remote_retrieve_response_code( $response );
 
         if ( $status_code < 200 || $status_code >= 300 ) {
+            $body = wp_remote_retrieve_body( $response );
+            $error_detail = '';
+
+            // Try to extract error message from response body
+            if ( ! empty( $body ) ) {
+                $decoded = json_decode( $body, true );
+                if ( isset( $decoded['error']['message'] ) ) {
+                    $error_detail = ': ' . $decoded['error']['message'];
+                } elseif ( isset( $decoded['error'] ) && is_string( $decoded['error'] ) ) {
+                    $error_detail = ': ' . $decoded['error'];
+                } elseif ( isset( $decoded['message'] ) ) {
+                    $error_detail = ': ' . $decoded['message'];
+                }
+            }
+
             throw new \RuntimeException(
-                sprintf( 'HTTP request failed with status %d', $status_code )
+                sprintf( 'HTTP request failed with status %d%s', $status_code, $error_detail )
             );
         }
 
