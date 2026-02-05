@@ -119,6 +119,41 @@ class Translator
             return '';
         }
 
+        // --- NEW LOGIC: Handle Complex API Object ---
+        // { defaultLanguageCode: "es", translations: [ { reference: "es", value: "..." }, ... ] }
+        if (isset($multilingual_text['translations']) && is_array($multilingual_text['translations'])) {
+            $translations = $multilingual_text['translations'];
+
+            // 1. Try to find target language directly in the translations array
+            foreach ($translations as $t) {
+                // 'reference' seems to hold the language code (e.g. 'es', 'en')
+                // 'value' holds the text
+                if (isset($t['reference']) && $t['reference'] === $this->target_language && !empty($t['value'])) {
+                    return $t['value'];
+                }
+            }
+
+            // 2. Fallback: Try preferred languages priority
+            foreach (self::LANGUAGE_PRIORITY as $lang) {
+                foreach ($translations as $t) {
+                    if (isset($t['reference']) && $t['reference'] === $lang && !empty($t['value'])) {
+                        // Translate from this source language
+                        return $this->translate($t['value'], $lang);
+                    }
+                }
+            }
+
+            // 3. Last fallback: Use the first available translation
+            $first = reset($translations);
+            if ($first && isset($first['value']) && !empty($first['value'])) {
+                $source = $first['reference'] ?? 'auto';
+                return $this->translate($first['value'], $source);
+            }
+
+            return '';
+        }
+
+        // --- OLD LOGIC: Simple Key-Value Map ---
         // OPTIMIZATION: Check if target language is already present natively
         if (isset($multilingual_text[$this->target_language]) && !empty(trim($multilingual_text[$this->target_language]))) {
             return $multilingual_text[$this->target_language];

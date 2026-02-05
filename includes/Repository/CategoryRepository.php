@@ -203,4 +203,77 @@ class CategoryRepository implements RepositoryInterface {
 
         return $mapping;
     }
+
+    /**
+     * Get combined mappings (auto + manual, manual takes precedence).
+     *
+     * @return array<string, int>
+     */
+    public function get_combined_mapping(): array {
+        $auto_mappings = $this->get_mapping();
+        $manual_mappings = get_option( 'ewheel_importer_category_mappings', [] );
+
+        // Manual mappings take precedence
+        return array_merge( $auto_mappings, $manual_mappings );
+    }
+
+    /**
+     * Get manual mappings only.
+     *
+     * @return array<string, int>
+     */
+    public function get_manual_mapping(): array {
+        return get_option( 'ewheel_importer_category_mappings', [] );
+    }
+
+    /**
+     * Set a manual mapping.
+     *
+     * @param string $ewheel_ref Ewheel category reference.
+     * @param int    $woo_cat_id WooCommerce category ID (0 to remove).
+     * @return bool
+     */
+    public function set_manual_mapping( string $ewheel_ref, int $woo_cat_id ): bool {
+        $mappings = $this->get_manual_mapping();
+
+        if ( $woo_cat_id > 0 ) {
+            $mappings[ $ewheel_ref ] = $woo_cat_id;
+        } else {
+            unset( $mappings[ $ewheel_ref ] );
+        }
+
+        return update_option( 'ewheel_importer_category_mappings', $mappings );
+    }
+
+    /**
+     * Get all WooCommerce categories.
+     *
+     * @return array
+     */
+    public function get_all_woo_categories(): array {
+        $terms = get_terms(
+            [
+                'taxonomy'   => self::TAXONOMY,
+                'hide_empty' => false,
+                'orderby'    => 'name',
+                'order'      => 'ASC',
+            ]
+        );
+
+        if ( is_wp_error( $terms ) ) {
+            return [];
+        }
+
+        $categories = [];
+        foreach ( $terms as $term ) {
+            $categories[] = [
+                'id'     => $term->term_id,
+                'name'   => $term->name,
+                'slug'   => $term->slug,
+                'parent' => $term->parent,
+            ];
+        }
+
+        return $categories;
+    }
 }

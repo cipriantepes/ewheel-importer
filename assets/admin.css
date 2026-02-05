@@ -89,6 +89,406 @@
     border-top: none;
 }
 
+/* Tabs */
+.ewheel-tabs {
+    display: flex;
+    border-bottom: 1px solid #c3c4c7;
+    margin-bottom: 20px;
+}
+
+.ewheel-tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-bottom: none;
+    margin-bottom: -1px;
+    background: #f0f0f1;
+    border-radius: 4px 4px 0 0;
+    margin-right: 5px;
+}
+
+.ewheel-tab:hover {
+    background: #e0e0e1;
+}
+
+.ewheel-tab.active {
+    background: #fff;
+    border-color: #c3c4c7;
+    font-weight: 600;
+}
+
+.ewheel-tab-content {
+    display: none;
+}
+
+.ewheel-tab-content.active {
+    display: block;
+}
+
+/* Sync History Table */
+.ewheel-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.ewheel-history-table th,
+.ewheel-history-table td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.ewheel-history-table th {
+    background: #f9f9f9;
+    font-weight: 600;
+}
+
+.ewheel-history-table tr:hover {
+    background: #f9f9f9;
+}
+
+/* Status Badges */
+.ewheel-status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.ewheel-status-badge.running {
+    background: #e7f3ff;
+    color: #0066cc;
+}
+
+.ewheel-status-badge.completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.ewheel-status-badge.failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.ewheel-status-badge.stopped {
+    background: #fff3cd;
+    color: #856404;
+}
+
+/* Progress Bar */
+.ewheel-progress-container {
+    width: 100%;
+    background: #f0f0f1;
+    border-radius: 4px;
+    height: 24px;
+    overflow: hidden;
+    margin: 10px 0;
+}
+
+.ewheel-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #2271b1, #135e96);
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Stats Cards */
+.ewheel-stats-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.ewheel-stat-card {
+    flex: 1;
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.ewheel-stat-card .stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1e1e1e;
+}
+
+.ewheel-stat-card .stat-label {
+    font-size: 12px;
+    color: #646970;
+    margin-top: 5px;
+}
+
+.ewheel-stat-card.success .stat-value {
+    color: #155724;
+}
+
+.ewheel-stat-card.error .stat-value {
+    color: #721c24;
+}
+
+/* Log Filters */
+.ewheel-log-filters {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.ewheel-log-filters select,
+.ewheel-log-filters input {
+    padding: 5px 10px;
+}
+
+/* Log Table */
+.ewheel-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.ewheel-log-table th,
+.ewheel-log-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.ewheel-log-table th {
+    background: #f9f9f9;
+    font-weight: 600;
+}
+
+.ewheel-log-table tr.level-error {
+    background: #fff5f5;
+}
+
+.ewheel-log-table tr.level-warning {
+    background: #fffbf0;
+}
+
+.ewheel-log-table tr.level-success {
+    background: #f0fff4;
+}
+
+/* Settings Import/Export */
+.ewheel-settings-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+/* Empty States */
+.ewheel-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #646970;
+}
+
+.ewheel-empty-state .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 15px;
+    color: #c3c4c7;
+}
+
+/* Pagination */
+.ewheel-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.ewheel-pagination-info {
+    color: #646970;
+    font-size: 13px;
+}
+
+.ewheel-pagination-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+/* Category Mapping */
+.ewheel-category-map-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.ewheel-category-map-table th {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #c3c4c7;
+    background: #f9f9f9;
+    font-weight: 600;
+}
+
+.ewheel-category-map-table td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.ewheel-category-map-table tr:hover td {
+    background: #f9f9f9;
+}
+
+.ewheel-category-map-table select {
+    width: 100%;
+    max-width: 300px;
+}
+
+.ewheel-category-map-table code {
+    background: #f0f0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ewheel-category-map-table .mapping-status {
+    width: 100px;
+    text-align: center;
+}
+
+/* Loading Spinner */
+.ewheel-loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #2271b1;
+    border-radius: 50%;
+    animation: ewheel-spin 1s linear infinite;
+    margin-right: 8px;
+}
+
+@keyframes ewheel-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Profiles Tab */
+.ewheel-profiles-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.ewheel-profiles-table th,
+.ewheel-profiles-table td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.ewheel-profiles-table th {
+    background: #f9f9f9;
+    font-weight: 600;
+}
+
+.ewheel-profiles-table tr:hover td {
+    background: #f9f9f9;
+}
+
+.ewheel-profiles-table .button {
+    margin-right: 5px;
+}
+
+.ewheel-profiles-table small {
+    color: #646970;
+}
+
+/* Profile Form */
+#ewheel-profile-form h4 {
+    margin-top: 25px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    font-size: 14px;
+}
+
+#ewheel-profile-form h4:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+#ewheel-profile-form .form-table th {
+    width: 180px;
+    padding-top: 15px;
+    vertical-align: top;
+}
+
+#ewheel-profile-form .form-table td {
+    padding-top: 15px;
+}
+
+#ewheel-profile-form .required {
+    color: #d63638;
+}
+
+#ewheel-profile-save-status {
+    display: inline-block;
+    margin-left: 10px;
+}
+
+/* Profile Sync Box */
+#ewheel-profile-sync-controls {
+    margin-top: 15px;
+}
+
+#ewheel-profile-sync-controls p {
+    margin-bottom: 10px;
+}
+
+#ewheel-selected-profile-name {
+    color: #2271b1;
+    font-size: 14px;
+}
+
+#ewheel-profile-last-sync {
+    margin-top: 10px;
+    color: #646970;
+}
+
+/* Status Badge in Profile Table */
+.ewheel-profiles-table .ewheel-status-badge {
+    margin-left: 5px;
+}
+
+.ewheel-status-badge.info {
+    background: #e7f3ff;
+    color: #0066cc;
+}
+
+.ewheel-status-badge.warning {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.ewheel-status-badge.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.ewheel-status-badge.success {
+    background: #d4edda;
+    color: #155724;
+}
+
 @media (max-width: 782px) {
     .ewheel-importer-columns {
         flex-direction: column;
@@ -96,5 +496,37 @@
 
     .ewheel-importer-sidebar {
         width: 100%;
+    }
+
+    .ewheel-stats-row {
+        flex-direction: column;
+    }
+
+    .ewheel-tabs {
+        flex-wrap: wrap;
+    }
+
+    .ewheel-log-filters {
+        flex-direction: column;
+    }
+
+    #ewheel-profile-form .form-table th {
+        width: 100%;
+        display: block;
+        padding-bottom: 5px;
+    }
+
+    #ewheel-profile-form .form-table td {
+        display: block;
+        padding-top: 0;
+    }
+
+    .ewheel-profiles-table {
+        font-size: 13px;
+    }
+
+    .ewheel-profiles-table th:nth-child(3),
+    .ewheel-profiles-table td:nth-child(3) {
+        display: none;
     }
 }

@@ -168,9 +168,10 @@ class MockFactory {
     /**
      * Create a mock configuration.
      *
+     * @param bool $variable_mode Whether to use variable product mode (default: true).
      * @return \Mockery\MockInterface&Configuration
      */
-    public static function configuration(): Configuration {
+    public static function configuration( bool $variable_mode = true ): Configuration {
         $mock = Mockery::mock( Configuration::class );
         $mock->shouldReceive( 'get_api_key' )->andReturn( 'test-api-key' );
         $mock->shouldReceive( 'get_target_language' )->andReturn( 'ro' );
@@ -194,6 +195,8 @@ class MockFactory {
                 'stock'             => true,
             ]
         );
+        $mock->shouldReceive( 'is_variable_product_mode' )->andReturn( $variable_mode );
+        $mock->shouldReceive( 'get_variation_mode' )->andReturn( $variable_mode ? 'variable' : 'simple' );
         return $mock;
     }
 }

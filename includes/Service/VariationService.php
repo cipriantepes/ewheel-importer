@@ -13,6 +13,23 @@ namespace Trotibike\EwheelImporter\Service;
 class VariationService
 {
     /**
+     * Image service instance.
+     *
+     * @var ImageService
+     */
+    private ImageService $image_service;
+
+    /**
+     * Constructor.
+     *
+     * @param ImageService $image_service Image service.
+     */
+    public function __construct(ImageService $image_service)
+    {
+        $this->image_service = $image_service;
+    }
+
+    /**
      * Create variations for a variable product.
      *
      * @param int   $product_id The parent product ID.
@@ -26,23 +43,7 @@ class VariationService
             $variation = new \WC_Product_Variation();
             $variation->set_parent_id($product_id);
 
-            if (isset($variation_data['sku'])) {
-                $variation->set_sku($variation_data['sku']);
-            }
-
-            if (isset($variation_data['regular_price'])) {
-                $variation->set_regular_price($variation_data['regular_price']);
-            }
-
-            // Set variation attributes
-            if (!empty($variation_data['attributes'])) {
-                $attrs = [];
-                foreach ($variation_data['attributes'] as $attr) {
-                    $slug = sanitize_title($attr['name'] ?? '');
-                    $attrs[$slug] = $attr['option'] ?? '';
-                }
-                $variation->set_attributes($attrs);
-            }
+            $this->set_variation_data($variation, $variation_data);
 
             $variation->save();
         }
@@ -84,9 +85,7 @@ class VariationService
                 // Update existing
                 $variation = wc_get_product($existing_by_sku[$sku]);
                 if ($variation) {
-                    if (isset($variation_data['regular_price'])) {
-                        $variation->set_regular_price($variation_data['regular_price']);
-                    }
+                    $this->set_variation_data($variation, $variation_data);
                     $variation->save();
                 }
                 unset($existing_by_sku[$sku]);
@@ -94,29 +93,77 @@ class VariationService
                 // Create new variation
                 $variation = new \WC_Product_Variation();
                 $variation->set_parent_id($product_id);
-
-                if (isset($variation_data['sku'])) {
-                    $variation->set_sku($variation_data['sku']);
-                }
-
-                if (isset($variation_data['regular_price'])) {
-                    $variation->set_regular_price($variation_data['regular_price']);
-                }
-
-                if (!empty($variation_data['attributes'])) {
-                    $attrs = [];
-                    foreach ($variation_data['attributes'] as $attr) {
-                        $slug = sanitize_title($attr['name'] ?? '');
-                        $attrs[$slug] = $attr['option'] ?? '';
-                    }
-                    $variation->set_attributes($attrs);
-                }
-
+                $this->set_variation_data($variation, $variation_data);
                 $variation->save();
             }
         }
 
         // Note: We don't delete variations that are no longer in the feed
         // to avoid data loss. They can be manually removed.
+    }
+
+    /**
+     * Set data on a variation object.
+     *
+     * @param \WC_Product_Variation $variation The variation object.
+     * @param array                 $data      The variation data.
+     * @return void
+     */
+    private function set_variation_data(\WC_Product_Variation $variation, array $data): void
+    {
+        if (isset($data['sku'])) {
+            $variation->set_sku($data['sku']);
+        }
+
+        if (isset($data['regular_price'])) {
+            $variation->set_regular_price($data['regular_price']);
+            $variation->set_price($data['regular_price']);
+        }
+
+        // Stock management
+        if (isset($data['manage_stock'])) {
+            $variation->set_manage_stock($data['manage_stock']);
+        } else {
+            $variation->set_manage_stock(true); // Default to managed
+        }
+
+        if (isset($data['stock_quantity'])) {
+            $variation->set_stock_quantity($data['stock_quantity']);
+            $variation->set_stock_status($data['stock_quantity'] > 0 ? 'instock' : 'outofstock');
+        } elseif (isset($data['stock_status'])) {
+            $variation->set_stock_status($data['stock_status']);
+        }
+
+        // Dimensions and Weight
+        if (isset($data['weight'])) {
+            $variation->set_weight($data['weight']);
+        }
+        if (isset($data['length'])) {
+            $variation->set_length($data['length']);
+        }
+        if (isset($data['width'])) {
+            $variation->set_width($data['width']);
+        }
+        if (isset($data['height'])) {
+            $variation->set_height($data['height']);
+        }
+
+        // Image
+        if (!empty($data['image'])) {
+            $image_id = $this->image_service->import_from_url($data['image']);
+            if ($image_id) {
+                $variation->set_image_id($image_id);
+            }
+        }
+
+        // Attributes
+        if (!empty($data['attributes'])) {
+            $attrs = [];
+            foreach ($data['attributes'] as $attr) {
+                $slug = sanitize_title($attr['name'] ?? '');
+                $attrs[$slug] = $attr['option'] ?? '';
+            }
+            $variation->set_attributes($attrs);
+        }
     }
 }

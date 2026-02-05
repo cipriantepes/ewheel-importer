@@ -21,6 +21,16 @@ class Configuration
     private const PREFIX = 'ewheel_importer_';
 
     /**
+     * Variation mode: variable products.
+     */
+    public const VARIATION_MODE_VARIABLE = 'variable';
+
+    /**
+     * Variation mode: simple linked products.
+     */
+    public const VARIATION_MODE_SIMPLE = 'simple';
+
+    /**
      * Default configuration values.
      */
     private const DEFAULTS = [
@@ -43,7 +53,22 @@ class Configuration
             'categories' => true,
             'attributes' => true,
         ],
+        'sync_protection' => [
+            'name' => false,
+            'description' => false,
+            'short_description' => false,
+            'price' => false,
+            'images' => false,
+            'categories' => false,
+            'attributes' => false,
+        ],
+        'custom_patterns' => [
+            'name' => '',
+            'description' => '',
+            'short_description' => '',
+        ],
         'openrouter_model' => 'google/gemini-flash-1.5',
+        'variation_mode' => self::VARIATION_MODE_VARIABLE, // 'variable' or 'simple'
     ];
 
     /**
@@ -206,6 +231,29 @@ class Configuration
         }
 
         return array_merge($defaults, $saved);
+    }
+
+    /**
+     * Get variation mode.
+     *
+     * @return string 'variable' or 'simple'
+     */
+    public function get_variation_mode(): string
+    {
+        $mode = (string) $this->get('variation_mode');
+        return in_array($mode, [self::VARIATION_MODE_VARIABLE, self::VARIATION_MODE_SIMPLE], true)
+            ? $mode
+            : self::VARIATION_MODE_VARIABLE;
+    }
+
+    /**
+     * Check if using variable product mode.
+     *
+     * @return bool
+     */
+    public function is_variable_product_mode(): bool
+    {
+        return $this->get_variation_mode() === self::VARIATION_MODE_VARIABLE;
     }
 
     /**

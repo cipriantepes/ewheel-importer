@@ -36,7 +36,10 @@ class ProductTransformerTest extends TestCase {
             ]
         );
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+
+        $this->assertCount( 1, $result );
+        $woo_product = $result[0];
 
         $this->assertEquals( 'Trotinetă Electrică X1', $woo_product['name'] );
         $this->assertEquals( 'Trotinetă electrică de înaltă performanță', $woo_product['description'] );
@@ -58,7 +61,8 @@ class ProductTransformerTest extends TestCase {
         $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::inactive_ewheel_product();
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+        $woo_product = $result[0];
 
         $this->assertEquals( 'draft', $woo_product['status'] );
     }
@@ -69,12 +73,15 @@ class ProductTransformerTest extends TestCase {
     public function test_transform_product_with_variants(): void {
         $translator        = MockFactory::translator();
         $pricing_converter = MockFactory::pricing_converter();
-        $config            = MockFactory::configuration();
+        $config            = MockFactory::configuration( true ); // Variable mode
 
         $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::variable_ewheel_product();
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+
+        $this->assertCount( 1, $result ); // One variable product
+        $woo_product = $result[0];
 
         $this->assertEquals( 'variable', $woo_product['type'] );
         $this->assertArrayHasKey( 'attributes', $woo_product );
@@ -101,7 +108,8 @@ class ProductTransformerTest extends TestCase {
             ]
         );
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+        $woo_product = $result[0];
 
         $this->assertArrayHasKey( 'attributes', $woo_product );
         $this->assertCount( 3, $woo_product['attributes'] );
@@ -127,7 +135,8 @@ class ProductTransformerTest extends TestCase {
             ]
         );
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+        $woo_product = $result[0];
 
         $this->assertArrayHasKey( 'categories', $woo_product );
         $this->assertCount( 2, $woo_product['categories'] );
@@ -150,7 +159,8 @@ class ProductTransformerTest extends TestCase {
         $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
         $ewheel_product = ProductFixtures::minimal_ewheel_product();
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+        $woo_product = $result[0];
 
         $this->assertEquals( 'MINIMAL-001', $woo_product['sku'] );
         $this->assertEquals( '', $woo_product['name'] );
@@ -173,7 +183,8 @@ class ProductTransformerTest extends TestCase {
             ]
         );
 
-        $woo_product = $transformer->transform( $ewheel_product );
+        $result = $transformer->transform( $ewheel_product );
+        $woo_product = $result[0];
 
         $this->assertArrayHasKey( 'meta_data', $woo_product );
         $meta_keys = array_column( $woo_product['meta_data'], 'key' );
@@ -197,5 +208,105 @@ class ProductTransformerTest extends TestCase {
         $this->assertCount( 2, $results );
         $this->assertEquals( 'PROD-1', $results[0]['sku'] );
         $this->assertEquals( 'PROD-2', $results[1]['sku'] );
+    }
+
+    /**
+     * Test simple mode creates multiple simple products from variants.
+     */
+    public function test_simple_mode_creates_multiple_products_from_variants(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
+        $ewheel_product = ProductFixtures::variable_ewheel_product();
+
+        $result = $transformer->transform( $ewheel_product );
+
+        // Should create 2 simple products (one per variant)
+        $this->assertCount( 2, $result );
+
+        // First variant
+        $this->assertEquals( 'simple', $result[0]['type'] );
+        $this->assertEquals( 'SCOOTER-V-BLACK', $result[0]['sku'] );
+        $this->assertStringContains( 'Black', $result[0]['name'] );
+
+        // Second variant
+        $this->assertEquals( 'simple', $result[1]['type'] );
+        $this->assertEquals( 'SCOOTER-V-WHITE', $result[1]['sku'] );
+        $this->assertStringContains( 'White', $result[1]['name'] );
+
+        // Both should have product group meta
+        $meta_keys_1 = array_column( $result[0]['meta_data'], 'key' );
+        $meta_keys_2 = array_column( $result[1]['meta_data'], 'key' );
+        $this->assertContains( '_ewheel_product_group', $meta_keys_1 );
+        $this->assertContains( '_ewheel_product_group', $meta_keys_2 );
+    }
+
+    /**
+     * Test simple mode products share the same product group.
+     */
+    public function test_simple_mode_products_share_product_group(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
+        $ewheel_product = ProductFixtures::variable_ewheel_product();
+
+        $result = $transformer->transform( $ewheel_product );
+
+        // Get product group values
+        $get_group = function ( $product ) {
+            foreach ( $product['meta_data'] as $meta ) {
+                if ( $meta['key'] === '_ewheel_product_group' ) {
+                    return $meta['value'];
+                }
+            }
+            return null;
+        };
+
+        $group_1 = $get_group( $result[0] );
+        $group_2 = $get_group( $result[1] );
+
+        $this->assertEquals( 'SCOOTER-V', $group_1 );
+        $this->assertEquals( $group_1, $group_2 );
+    }
+
+    /**
+     * Test batch transform with mixed simple and variable products in simple mode.
+     */
+    public function test_batch_transform_expands_variants_in_simple_mode(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
+        $products    = [
+            ProductFixtures::simple_ewheel_product( [ 'Reference' => 'SIMPLE-1' ] ),
+            ProductFixtures::variable_ewheel_product(), // Has 2 variants
+        ];
+
+        $results = $transformer->transform_batch( $products );
+
+        // 1 simple + 2 expanded variants = 3 products
+        $this->assertCount( 3, $results );
+        $this->assertEquals( 'SIMPLE-1', $results[0]['sku'] );
+        $this->assertEquals( 'SCOOTER-V-BLACK', $results[1]['sku'] );
+        $this->assertEquals( 'SCOOTER-V-WHITE', $results[2]['sku'] );
+    }
+
+    /**
+     * Helper to check if string contains substring.
+     *
+     * @param string $needle   The substring to search for.
+     * @param string $haystack The string to search in.
+     * @return void
+     */
+    private function assertStringContains( string $needle, string $haystack ): void {
+        $this->assertTrue(
+            strpos( $haystack, $needle ) !== false,
+            "Failed asserting that '$haystack' contains '$needle'"
+        );
     }
 }

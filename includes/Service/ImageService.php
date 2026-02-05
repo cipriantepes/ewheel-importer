@@ -30,6 +30,9 @@ class ImageService {
             return null;
         }
 
+        // Normalize HTTP to HTTPS to avoid mixed content warnings
+        $url = preg_replace( '/^http:\/\//i', 'https://', $url );
+
         // Check if already imported
         $existing = $this->find_by_source_url( $url );
         if ( $existing ) {

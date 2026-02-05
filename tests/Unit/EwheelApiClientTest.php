@@ -45,21 +45,21 @@ class EwheelApiClientTest extends TestCase {
     }
 
     /**
-     * Test fetching categories successfully (uses POST, extracts Data).
+     * Test fetching categories successfully (uses GET, extracts Data).
      */
     public function test_get_categories_returns_array(): void {
         $category_data   = ProductFixtures::category_list();
         $mock_response   = $this->wrap_response( $category_data );
 
         $http_client = MockFactory::http_client();
-        $http_client->shouldReceive( 'post' )
+        $http_client->shouldReceive( 'get' )
             ->once()
             ->with(
-                'https://api.ewheel.es/api/v1/catalog/categories',
                 Mockery::on(
-                    function ( $body ) {
-                        return isset( $body['Page'] ) && $body['Page'] === 0
-                            && isset( $body['PageSize'] ) && $body['PageSize'] === 50;
+                    function ( $url ) {
+                        return strpos( $url, 'https://api.ewheel.es/api/v1/catalog/categories' ) === 0
+                            && strpos( $url, 'Page=0' ) !== false
+                            && strpos( $url, 'PageSize=50' ) !== false;
                     }
                 ),
                 Mockery::type( 'array' )
@@ -76,18 +76,18 @@ class EwheelApiClientTest extends TestCase {
     }
 
     /**
-     * Test fetching categories with pagination (uses POST body).
+     * Test fetching categories with pagination (uses GET query params).
      */
     public function test_get_categories_with_pagination(): void {
         $http_client = MockFactory::http_client();
-        $http_client->shouldReceive( 'post' )
+        $http_client->shouldReceive( 'get' )
             ->once()
             ->with(
-                'https://api.ewheel.es/api/v1/catalog/categories',
                 Mockery::on(
-                    function ( $body ) {
-                        return isset( $body['Page'] ) && $body['Page'] === 2
-                            && isset( $body['PageSize'] ) && $body['PageSize'] === 25;
+                    function ( $url ) {
+                        return strpos( $url, 'https://api.ewheel.es/api/v1/catalog/categories' ) === 0
+                            && strpos( $url, 'Page=2' ) !== false
+                            && strpos( $url, 'PageSize=25' ) !== false;
                     }
                 ),
                 Mockery::type( 'array' )
@@ -181,14 +181,13 @@ class EwheelApiClientTest extends TestCase {
     }
 
     /**
-     * Test API key is included in request headers (for categories POST).
+     * Test API key is included in request headers (for categories GET).
      */
     public function test_api_key_included_in_headers(): void {
         $http_client = MockFactory::http_client();
-        $http_client->shouldReceive( 'post' )
+        $http_client->shouldReceive( 'get' )
             ->once()
             ->with(
-                Mockery::any(),
                 Mockery::any(),
                 Mockery::on(
                     function ( $headers ) {
@@ -210,7 +209,7 @@ class EwheelApiClientTest extends TestCase {
         $this->expectExceptionMessage( 'API request failed' );
 
         $http_client = MockFactory::http_client();
-        $http_client->shouldReceive( 'post' )
+        $http_client->shouldReceive( 'get' )
             ->once()
             ->andThrow( new \RuntimeException( 'API request failed' ) );
 
@@ -235,7 +234,7 @@ class EwheelApiClientTest extends TestCase {
         ];
 
         $http_client = MockFactory::http_client();
-        $http_client->shouldReceive( 'post' )
+        $http_client->shouldReceive( 'get' )
             ->once()
             ->andReturn( $error_response );
 

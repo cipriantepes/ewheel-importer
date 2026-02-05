@@ -174,8 +174,25 @@ class EwheelApiClient
 
             if (!empty($products)) {
                 $first_item = $products[0];
-                $first_id = is_array($first_item) ? ($first_item['Reference'] ?? ($first_item['Id'] ?? 'Unknown')) : 'Unknown';
-                \Trotibike\EwheelImporter\Log\LiveLogger::log("First Item ID: $first_id", 'info');
+                // Log the first item's ID for debugging (handle case sensitivity and nested variants)
+                $first_id = 'Unknown';
+                if (is_array($first_item)) {
+                    // Check top-level keys
+                    $first_id = $first_item['Reference'] ?? ($first_item['Id'] ?? ($first_item['reference'] ?? ($first_item['id'] ?? null)));
+
+                    // If not found, check variants (common in Ewheel API v1)
+                    if ($first_id === null && !empty($first_item['variants']) && is_array($first_item['variants'])) {
+                        $first_variant = $first_item['variants'][0] ?? [];
+                        $first_id = $first_variant['reference'] ?? ($first_variant['id'] ?? ($first_variant['Reference'] ?? ($first_variant['Id'] ?? 'Unknown')));
+                        $first_id .= ' (Variant)';
+                    }
+
+                    if ($first_id === null) {
+                        $first_id = 'Unknown';
+                    }
+                }
+
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("Found {$count} products. First Item ID: {$first_id}", 'info');
             }
 
             return $products;
@@ -274,16 +291,28 @@ class EwheelApiClient
      */
     private function extract_data(array $response): array
     {
-        // Check if response has the wrapper structure
+        // Check if response has the wrapper structure (handle case sensitivity)
+        $data = null;
         if (isset($response['Data']) && is_array($response['Data'])) {
+            $data = $response['Data'];
+        } elseif (isset($response['data']) && is_array($response['data'])) {
+            $data = $response['data'];
+        }
+
+        if ($data !== null) {
             // Check for API errors in the wrapper
-            if (isset($response['Ok']) && $response['Ok'] === false) {
-                $message = $response['Message'] ?? 'Unknown API error';
+            // Note: API might return keys in different cases, checking standard PascalCase first
+            if (
+                (isset($response['Ok']) && $response['Ok'] === false) ||
+                (isset($response['ok']) && $response['ok'] === false)
+            ) {
+
+                $message = $response['Message'] ?? ($response['message'] ?? 'Unknown API error');
                 \Trotibike\EwheelImporter\Log\LiveLogger::log("API Error: {$message}", 'error');
                 throw new \RuntimeException("API Error: {$message}");
             }
 
-            return $response['Data'];
+            return $data;
         }
 
         // Fallback: if response is already a direct array of items (indexed array)

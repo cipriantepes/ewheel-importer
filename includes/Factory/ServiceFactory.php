@@ -15,16 +15,23 @@ use Trotibike\EwheelImporter\Api\HttpClientInterface;
 use Trotibike\EwheelImporter\Translation\Translator;
 use Trotibike\EwheelImporter\Translation\GoogleTranslateService;
 use Trotibike\EwheelImporter\Translation\DeepLTranslateService;
+use Trotibike\EwheelImporter\Translation\OpenRouterTranslateService;
 use Trotibike\EwheelImporter\Translation\TranslationServiceInterface;
 use Trotibike\EwheelImporter\Repository\TranslationRepository;
+use Trotibike\EwheelImporter\Repository\ProfileRepository;
 use Trotibike\EwheelImporter\Pricing\PricingConverter;
 use Trotibike\EwheelImporter\Pricing\FixedExchangeRateProvider;
 use Trotibike\EwheelImporter\Pricing\ExchangeRateProviderInterface;
 use Trotibike\EwheelImporter\Sync\ProductTransformer;
 use Trotibike\EwheelImporter\Sync\SyncService;
+use Trotibike\EwheelImporter\Sync\SyncLauncher;
+use Trotibike\EwheelImporter\Sync\SyncBatchProcessor;
+use Trotibike\EwheelImporter\Sync\WooCommerceSync;
 use Trotibike\EwheelImporter\Repository\ProductRepository;
 use Trotibike\EwheelImporter\Repository\CategoryRepository;
 use Trotibike\EwheelImporter\Service\ImageService;
+use Trotibike\EwheelImporter\Service\AttributeService;
+use Trotibike\EwheelImporter\Service\VariationService;
 
 /**
  * Factory for creating and configuring services.
@@ -82,6 +89,14 @@ class ServiceFactory
                     );
                 }
 
+                if ($driver === 'openrouter') {
+                    return new OpenRouterTranslateService(
+                        $config->get_openrouter_api_key(),
+                        $config->get_openrouter_model(),
+                        $c->get(HttpClientInterface::class)
+                    );
+                }
+
                 return new GoogleTranslateService(
                     $config->get_translate_api_key(),
                     $c->get(HttpClientInterface::class)
@@ -91,8 +106,8 @@ class ServiceFactory
 
         // Translation Repository
         $container->singleton(
-            \Trotibike\EwheelImporter\Repository\TranslationRepository::class,
-            fn() => new \Trotibike\EwheelImporter\Repository\TranslationRepository()
+            TranslationRepository::class,
+            fn() => new TranslationRepository()
         );
 
         // Translator
@@ -102,7 +117,7 @@ class ServiceFactory
                 $config = $c->get(Configuration::class);
                 return new Translator(
                     $c->get(TranslationServiceInterface::class),
-                    $c->get(\Trotibike\EwheelImporter\Repository\TranslationRepository::class),
+                    $c->get(TranslationRepository::class),
                     $config->get_target_language()
                 );
             }
@@ -135,20 +150,22 @@ class ServiceFactory
 
         // Attribute Service
         $container->singleton(
-            \Trotibike\EwheelImporter\Service\AttributeService::class,
-            fn() => new \Trotibike\EwheelImporter\Service\AttributeService()
-        );
-
-        // Variation Service
-        $container->singleton(
-            \Trotibike\EwheelImporter\Service\VariationService::class,
-            fn() => new \Trotibike\EwheelImporter\Service\VariationService()
+            AttributeService::class,
+            fn() => new AttributeService()
         );
 
         // Image Service
         $container->singleton(
             ImageService::class,
             fn() => new ImageService()
+        );
+
+        // Variation Service
+        $container->singleton(
+            VariationService::class,
+            fn(ServiceContainer $c) => new VariationService(
+                $c->get(ImageService::class)
+            )
         );
 
         // Repositories
@@ -162,6 +179,12 @@ class ServiceFactory
             fn(ServiceContainer $c) => new ProductRepository(
                 $c->get(ImageService::class)
             )
+        );
+
+        // Profile Repository
+        $container->singleton(
+            ProfileRepository::class,
+            fn() => new ProfileRepository()
         );
 
         // Product Transformer
@@ -190,34 +213,37 @@ class ServiceFactory
             }
         );
 
-        // Sync Launcher
-        $container->singleton(
-            \Trotibike\EwheelImporter\Sync\SyncLauncher::class,
-            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\SyncLauncher(
-                $c->get(Configuration::class)
-            )
-        );
-
         // WooCommerce Sync
         $container->singleton(
-            \Trotibike\EwheelImporter\Sync\WooCommerceSync::class,
-            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\WooCommerceSync(
+            WooCommerceSync::class,
+            fn(ServiceContainer $c) => new WooCommerceSync(
                 $c->get(EwheelApiClient::class),
                 $c->get(ProductTransformer::class),
                 $c->get(CategoryRepository::class),
-                $c->get(\Trotibike\EwheelImporter\Service\AttributeService::class),
-                $c->get(\Trotibike\EwheelImporter\Service\VariationService::class),
-                $c->get(ImageService::class)
+                $c->get(AttributeService::class),
+                $c->get(VariationService::class),
+                $c->get(ImageService::class),
+                $c->get(Configuration::class)
             )
         );
 
-        // Sync Batch Processor
+        // Sync Launcher (now with ProfileRepository)
         $container->singleton(
-            \Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class,
-            fn(ServiceContainer $c) => new \Trotibike\EwheelImporter\Sync\SyncBatchProcessor(
+            SyncLauncher::class,
+            fn(ServiceContainer $c) => new SyncLauncher(
+                $c->get(Configuration::class),
+                $c->get(ProfileRepository::class)
+            )
+        );
+
+        // Sync Batch Processor (now with ProfileRepository)
+        $container->singleton(
+            SyncBatchProcessor::class,
+            fn(ServiceContainer $c) => new SyncBatchProcessor(
                 $c->get(EwheelApiClient::class),
-                $c->get(\Trotibike\EwheelImporter\Sync\WooCommerceSync::class),
-                $c->get(Configuration::class)
+                $c->get(WooCommerceSync::class),
+                $c->get(Configuration::class),
+                $c->get(ProfileRepository::class)
             )
         );
 
@@ -246,5 +272,17 @@ class ServiceFactory
     public static function create_api_client(string $api_key): EwheelApiClient
     {
         return new EwheelApiClient($api_key, new WPHttpClient());
+    }
+
+    /**
+     * Create a profile repository.
+     *
+     * Convenience method for quick access.
+     *
+     * @return ProfileRepository
+     */
+    public static function create_profile_repository(): ProfileRepository
+    {
+        return new ProfileRepository();
     }
 }

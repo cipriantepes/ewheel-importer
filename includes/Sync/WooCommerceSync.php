@@ -8,6 +8,7 @@
 namespace Trotibike\EwheelImporter\Sync;
 
 use Trotibike\EwheelImporter\Api\EwheelApiClient;
+use Trotibike\EwheelImporter\Config\Configuration;
 
 /**
  * Handles synchronization with WooCommerce.
@@ -19,6 +20,13 @@ class WooCommerceSync
      * Batch size for WooCommerce API requests.
      */
     private const BATCH_SIZE = 50;
+
+    /**
+     * Configuration.
+     *
+     * @var Configuration
+     */
+    private Configuration $config;
 
     /**
      * The ewheel API client.
@@ -71,6 +79,7 @@ class WooCommerceSync
      * @param \Trotibike\EwheelImporter\Service\AttributeService  $attribute_service   Attribute service.
      * @param \Trotibike\EwheelImporter\Service\VariationService  $variation_service   Variation service.
      * @param \Trotibike\EwheelImporter\Service\ImageService      $image_service       Image service.
+     * @param Configuration                                       $config              Configuration.
      */
     public function __construct(
         EwheelApiClient $ewheel_client,
@@ -78,7 +87,8 @@ class WooCommerceSync
         \Trotibike\EwheelImporter\Repository\CategoryRepository $category_repository,
         \Trotibike\EwheelImporter\Service\AttributeService $attribute_service,
         \Trotibike\EwheelImporter\Service\VariationService $variation_service,
-        \Trotibike\EwheelImporter\Service\ImageService $image_service
+        \Trotibike\EwheelImporter\Service\ImageService $image_service,
+        Configuration $config
     ) {
         $this->ewheel_client = $ewheel_client;
         $this->transformer = $transformer;
@@ -86,6 +96,7 @@ class WooCommerceSync
         $this->attribute_service = $attribute_service;
         $this->variation_service = $variation_service;
         $this->image_service = $image_service;
+        $this->config = $config;
     }
 
     /**
@@ -119,8 +130,18 @@ class WooCommerceSync
      */
     private function sync_single_category(array $ewheel_category): ?int
     {
-        $reference = $ewheel_category['reference'] ?? '';
-        $name = $ewheel_category['name'] ?? $reference;
+        $reference = $ewheel_category['reference'] ?? ($ewheel_category['Reference'] ?? '');
+        $raw_name = $ewheel_category['name'] ?? ($ewheel_category['Name'] ?? $reference);
+
+        // Use transformer to translate category name to target language (Romanian)
+        // This handles both simple {"es": "...", "en": "..."} and complex
+        // {"defaultLanguageCode": "es", "translations": [...]} formats
+        $name = $this->transformer->translate_text($raw_name);
+
+        // Fallback to reference if translation failed
+        if (empty($name)) {
+            $name = $reference;
+        }
 
         // Check if category exists by meta
         $existing = $this->find_category_by_ewheel_ref($reference);
@@ -142,7 +163,8 @@ class WooCommerceSync
             $name,
             'product_cat',
             [
-                'slug' => sanitize_title($reference),
+                // Let WP generate slug from name for SEO
+                // 'slug' => sanitize_title($reference), 
             ]
         );
 
@@ -302,8 +324,9 @@ class WooCommerceSync
     {
         // FIX: Ensure category map is loaded for this batch
         // In background process, the transformer instance is fresh and empty
+        // Use combined mapping (auto + manual, manual takes precedence)
         if ($this->category_repository) {
-            $category_map = $this->category_repository->get_mapping();
+            $category_map = $this->category_repository->get_combined_mapping();
             $this->transformer->set_category_map($category_map);
         }
 
@@ -360,13 +383,85 @@ class WooCommerceSync
                 $this->update_product($existing_id, $product_data);
                 return 'updated';
             } else {
+                // Before creating, check for parent relationship
+                $parent_id = $this->detect_parent_relationship($product_data);
+                if ($parent_id) {
+                    // Add parent reference to meta data
+                    $product_data['meta_data'][] = [
+                        'key' => '_ewheel_parent_product_id',
+                        'value' => $parent_id,
+                    ];
+                }
+
                 $this->create_product($product_data);
                 return 'created';
             }
         } catch (\Exception $e) {
+            // Log to persistent logger if available
+            if (class_exists(\Trotibike\EwheelImporter\Log\PersistentLogger::class)) {
+                \Trotibike\EwheelImporter\Log\PersistentLogger::error(
+                    'Failed to sync product: ' . $e->getMessage(),
+                    $sku
+                );
+            }
             error_log('Failed to sync product ' . $sku . ': ' . $e->getMessage());
             return 'error';
         }
+    }
+
+    /**
+     * Detect if a product has a parent relationship with an existing product.
+     *
+     * Checks if there's an existing product with the same base reference.
+     * For example, if importing "MP-010" and "MP-010-parent" already exists,
+     * they are considered related.
+     *
+     * @param array $product_data The product data being imported.
+     * @return int|null The parent product ID if found, null otherwise.
+     */
+    private function detect_parent_relationship(array $product_data): ?int
+    {
+        // Get the reference base from meta data
+        $reference_base = null;
+        if (!empty($product_data['meta_data'])) {
+            foreach ($product_data['meta_data'] as $meta) {
+                if ($meta['key'] === '_ewheel_reference_base') {
+                    $reference_base = $meta['value'];
+                    break;
+                }
+            }
+        }
+
+        if (empty($reference_base)) {
+            return null;
+        }
+
+        // Look for existing products with the same base reference
+        global $wpdb;
+
+        $parent_id = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta}
+                WHERE meta_key = '_ewheel_reference_base'
+                AND meta_value = %s
+                LIMIT 1",
+                $reference_base
+            )
+        );
+
+        if ($parent_id) {
+            return (int) $parent_id;
+        }
+
+        // Also check for parent SKU pattern (e.g., base-parent)
+        $parent_sku = $reference_base . '-parent';
+        $parent_by_sku = wc_get_product_id_by_sku($parent_sku);
+
+        if ($parent_by_sku) {
+            return $parent_by_sku;
+        }
+
+        return null;
     }
 
     /**
@@ -429,15 +524,22 @@ class WooCommerceSync
      */
     private function set_product_data(\WC_Product $product, array $data): void
     {
-        if (isset($data['name'])) {
+        $is_update = $product->get_id() > 0;
+        $sync_protection = $this->config->get('sync_protection') ?: [];
+
+        $is_protected = function ($field) use ($is_update, $sync_protection) {
+            return $is_update && !empty($sync_protection[$field]);
+        };
+
+        if (isset($data['name']) && !$is_protected('name')) {
             $product->set_name($data['name']);
         }
 
-        if (isset($data['description'])) {
+        if (isset($data['description']) && !$is_protected('description')) {
             $product->set_description($data['description']);
         }
 
-        if (isset($data['short_description'])) {
+        if (isset($data['short_description']) && !$is_protected('short_description')) {
             $product->set_short_description($data['short_description']);
         }
 
@@ -445,7 +547,7 @@ class WooCommerceSync
             $product->set_sku($data['sku']);
         }
 
-        if (isset($data['regular_price'])) {
+        if (isset($data['regular_price']) && !$is_protected('price')) {
             $product->set_regular_price($data['regular_price']);
         }
 
@@ -458,18 +560,18 @@ class WooCommerceSync
         }
 
         // Set categories
-        if (!empty($data['categories'])) {
+        if (!empty($data['categories']) && !$is_protected('categories')) {
             $category_ids = array_column($data['categories'], 'id');
             $product->set_category_ids($category_ids);
         }
 
         // Set images
-        if (!empty($data['images'])) {
+        if (!empty($data['images']) && !$is_protected('image')) {
             $this->set_product_images($product, $data['images']);
         }
 
         // Set attributes
-        if (!empty($data['attributes'])) {
+        if (!empty($data['attributes']) && !$is_protected('attributes')) {
             $this->attribute_service->set_product_attributes($product, $data['attributes']);
         }
 
@@ -477,6 +579,14 @@ class WooCommerceSync
         if (!empty($data['meta_data'])) {
             foreach ($data['meta_data'] as $meta) {
                 $product->update_meta_data($meta['key'], $meta['value']);
+
+                // Set WooCommerce native GTIN field if EAN is found
+                // Available in WooCommerce 8.3+ via set_global_unique_id()
+                if ($meta['key'] === '_ewheel_ean' && !empty($meta['value'])) {
+                    if (method_exists($product, 'set_global_unique_id')) {
+                        $product->set_global_unique_id($meta['value']);
+                    }
+                }
             }
         }
     }
