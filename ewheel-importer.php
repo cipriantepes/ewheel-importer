@@ -884,7 +884,7 @@ final class Ewheel_Importer
                 if (is_array($raw_name)) {
                     // Complex format: {"translations": [...]}
                     if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
-                        foreach (['es', 'en'] as $preferred_lang) {
+                        foreach (['en', 'es'] as $preferred_lang) {
                             foreach ($raw_name['translations'] as $t) {
                                 if (isset($t['reference']) && $t['reference'] === $preferred_lang && !empty($t['value'])) {
                                     $source_text = $t['value'];
@@ -1075,7 +1075,7 @@ final class Ewheel_Importer
                     if (is_array($raw_name)) {
                         // Complex format: {"translations": [...]}
                         if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
-                            foreach (['es', 'en'] as $preferred_lang) {
+                            foreach (['en', 'es'] as $preferred_lang) {
                                 foreach ($raw_name['translations'] as $t) {
                                     if (isset($t['reference']) && $t['reference'] === $preferred_lang && !empty($t['value'])) {
                                         $source_text = $t['value'];
@@ -1090,12 +1090,12 @@ final class Ewheel_Importer
                                 $source_lang = $raw_name['translations'][0]['reference'] ?? 'es';
                             }
                         // Simple format: {"es": "text", "en": "text"}
-                        } elseif (!empty($raw_name['es'])) {
-                            $source_text = $raw_name['es'];
-                            $source_lang = 'es';
                         } elseif (!empty($raw_name['en'])) {
                             $source_text = $raw_name['en'];
                             $source_lang = 'en';
+                        } elseif (!empty($raw_name['es'])) {
+                            $source_text = $raw_name['es'];
+                            $source_lang = 'es';
                         } else {
                             $first_key = array_key_first($raw_name);
                             $source_text = $first_key ? ($raw_name[$first_key] ?: '') : '';
