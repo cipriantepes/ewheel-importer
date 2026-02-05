@@ -542,8 +542,146 @@
         }
     };
 
+    /**
+     * OpenRouter Model Selector Module
+     */
+    var OpenRouterModelSelector = {
+        $select: null,
+        $refreshBtn: null,
+        $status: null,
+        currentModel: '',
+
+        init: function () {
+            this.$select = $('#ewheel_importer_openrouter_model');
+            this.$refreshBtn = $('#ewheel-refresh-openrouter-models');
+            this.$status = $('#ewheel-openrouter-model-status');
+
+            if (this.$select.length === 0) {
+                return;
+            }
+
+            // Store current selected model
+            this.currentModel = this.$select.val();
+
+            // Bind events
+            this.$refreshBtn.on('click', this.refreshModels.bind(this));
+
+            // Load models on page load if OpenRouter is selected
+            if ($('#ewheel_importer_translation_driver').val() === 'openrouter') {
+                this.loadModels(false);
+            }
+
+            // Load models when switching to OpenRouter driver
+            var self = this;
+            $('#ewheel_importer_translation_driver').on('change', function () {
+                if ($(this).val() === 'openrouter') {
+                    self.loadModels(false);
+                }
+            });
+        },
+
+        loadModels: function (forceRefresh) {
+            var self = this;
+            var action = forceRefresh ? 'ewheel_refresh_openrouter_models' : 'ewheel_get_openrouter_models';
+
+            // Show loading state
+            this.$select.prop('disabled', true);
+            this.$refreshBtn.prop('disabled', true);
+            this.$refreshBtn.find('.dashicons').addClass('ewheel-spin');
+            this.$status.text(ewheelImporter.strings.loadingModels || 'Loading models...');
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: action,
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    self.$select.prop('disabled', false);
+                    self.$refreshBtn.prop('disabled', false);
+                    self.$refreshBtn.find('.dashicons').removeClass('ewheel-spin');
+
+                    if (response.success && response.data.models) {
+                        self.populateDropdown(response.data.models);
+                        var statusText = response.data.from_cache
+                            ? (ewheelImporter.strings.modelsFromCache || 'Models loaded from cache.')
+                            : (ewheelImporter.strings.modelsFetched || 'Models fetched from OpenRouter.');
+                        self.$status.html(statusText + ' ' + response.data.models.length + ' ' + (ewheelImporter.strings.modelsAvailable || 'models available.'));
+                    } else {
+                        self.$status.html('<span style="color: #d63638;">' + (response.data.message || 'Error loading models') + '</span>');
+                    }
+                },
+                error: function (xhr, status, error) {
+                    self.$select.prop('disabled', false);
+                    self.$refreshBtn.prop('disabled', false);
+                    self.$refreshBtn.find('.dashicons').removeClass('ewheel-spin');
+                    self.$status.html('<span style="color: #d63638;">Error: ' + error + '</span>');
+                }
+            });
+        },
+
+        refreshModels: function (e) {
+            e.preventDefault();
+            this.loadModels(true);
+        },
+
+        populateDropdown: function (models) {
+            var self = this;
+            var currentVal = this.currentModel || this.$select.val();
+
+            // Clear existing options
+            this.$select.empty();
+
+            // Add placeholder option
+            this.$select.append($('<option>', {
+                value: '',
+                text: '-- ' + (ewheelImporter.strings.selectModel || 'Select a model') + ' --',
+                disabled: true
+            }));
+
+            // Group models: Free first, then others
+            var freeModels = models.filter(function (m) { return m.is_free; });
+            var paidModels = models.filter(function (m) { return !m.is_free; });
+
+            if (freeModels.length > 0) {
+                var $freeGroup = $('<optgroup>', { label: ewheelImporter.strings.freeModels || 'Free Models' });
+                freeModels.forEach(function (model) {
+                    $freeGroup.append($('<option>', {
+                        value: model.id,
+                        text: model.display_name,
+                        selected: model.id === currentVal
+                    }));
+                });
+                this.$select.append($freeGroup);
+            }
+
+            if (paidModels.length > 0) {
+                var $paidGroup = $('<optgroup>', { label: ewheelImporter.strings.paidModels || 'Paid Models' });
+                paidModels.forEach(function (model) {
+                    $paidGroup.append($('<option>', {
+                        value: model.id,
+                        text: model.display_name,
+                        selected: model.id === currentVal
+                    }));
+                });
+                this.$select.append($paidGroup);
+            }
+
+            // If current model is not in the list, add it as a custom option
+            if (currentVal && this.$select.find('option[value="' + currentVal + '"]').length === 0) {
+                this.$select.prepend($('<option>', {
+                    value: currentVal,
+                    text: currentVal + ' (current)',
+                    selected: true
+                }));
+            }
+        }
+    };
+
     $(document).ready(function () {
         EwheelImporter.init();
+        OpenRouterModelSelector.init();
 
         // Store reference to currentProfileId when profile is selected
         $(document).on('click', '.ewheel-profile-item', function () {

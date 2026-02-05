@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           1.2.6
+ * Version:           1.2.7
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.2.6');
+define('EWHEEL_IMPORTER_VERSION', '1.2.7');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -210,6 +210,10 @@ final class Ewheel_Importer
         add_action('wp_ajax_ewheel_save_profile', [$this, 'ajax_save_profile']);
         add_action('wp_ajax_ewheel_delete_profile', [$this, 'ajax_delete_profile']);
 
+        // OpenRouter model AJAX handlers
+        add_action('wp_ajax_ewheel_get_openrouter_models', [$this, 'ajax_get_openrouter_models']);
+        add_action('wp_ajax_ewheel_refresh_openrouter_models', [$this, 'ajax_refresh_openrouter_models']);
+
         // Cron
         add_action('ewheel_importer_cron_sync', [$this, 'run_scheduled_sync']);
         add_filter('cron_schedules', [$this, 'add_cron_schedules']);
@@ -318,6 +322,14 @@ final class Ewheel_Importer
             'testing' => __('Testing connection...', 'ewheel-importer'),
             'connected' => __('Connection successful!', 'ewheel-importer'),
             'connFailed' => __('Connection failed:', 'ewheel-importer'),
+            // OpenRouter model strings
+            'loadingModels' => __('Loading models...', 'ewheel-importer'),
+            'modelsFromCache' => __('Models loaded from cache.', 'ewheel-importer'),
+            'modelsFetched' => __('Models fetched from OpenRouter.', 'ewheel-importer'),
+            'modelsAvailable' => __('models available.', 'ewheel-importer'),
+            'selectModel' => __('Select a model', 'ewheel-importer'),
+            'freeModels' => __('Free Models', 'ewheel-importer'),
+            'paidModels' => __('Paid Models', 'ewheel-importer'),
         ];
     }
 
@@ -1275,6 +1287,145 @@ final class Ewheel_Importer
             wp_send_json_success(['message' => __('Profile deleted successfully', 'ewheel-importer')]);
         } catch (\Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX: Get OpenRouter Models (with cache).
+     *
+     * @return void
+     */
+    public function ajax_get_openrouter_models(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        // Check cache first
+        $cached_models = Configuration::get_cached_openrouter_models();
+        if ($cached_models !== false) {
+            wp_send_json_success([
+                'models' => $cached_models,
+                'from_cache' => true,
+            ]);
+            return;
+        }
+
+        // Fetch from API
+        $this->fetch_and_cache_openrouter_models();
+    }
+
+    /**
+     * AJAX: Refresh OpenRouter Models (force refresh).
+     *
+     * @return void
+     */
+    public function ajax_refresh_openrouter_models(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        // Clear cache and fetch fresh
+        Configuration::clear_cached_openrouter_models();
+        $this->fetch_and_cache_openrouter_models();
+    }
+
+    /**
+     * Fetch OpenRouter models from API and cache them.
+     *
+     * @return void
+     */
+    private function fetch_and_cache_openrouter_models(): void
+    {
+        $api_key = $this->config->get_openrouter_api_key();
+
+        if (empty($api_key)) {
+            wp_send_json_error([
+                'message' => __('OpenRouter API key not configured. Please enter your API key first.', 'ewheel-importer'),
+                'models' => [],
+            ]);
+            return;
+        }
+
+        try {
+            $http_client = $this->container->get(\Trotibike\EwheelImporter\Api\HttpClientInterface::class);
+            $response = $http_client->get(
+                'https://openrouter.ai/api/v1/models',
+                ['Authorization' => 'Bearer ' . $api_key]
+            );
+
+            if (empty($response['data'])) {
+                wp_send_json_error([
+                    'message' => __('No models returned from OpenRouter', 'ewheel-importer'),
+                    'models' => [],
+                ]);
+                return;
+            }
+
+            // Format models for dropdown
+            $models = [];
+            foreach ($response['data'] as $model) {
+                $id = $model['id'] ?? '';
+                $name = $model['name'] ?? $id;
+
+                // Build display name with pricing info
+                $display_name = $name;
+
+                // Check if it's a free model
+                $is_free = false;
+                if (isset($model['pricing'])) {
+                    $prompt_price = floatval($model['pricing']['prompt'] ?? 1);
+                    $completion_price = floatval($model['pricing']['completion'] ?? 1);
+                    $is_free = ($prompt_price == 0 && $completion_price == 0);
+                }
+                if (strpos($id, ':free') !== false) {
+                    $is_free = true;
+                }
+
+                if ($is_free) {
+                    $display_name .= ' (Free)';
+                }
+
+                // Add context length if available
+                if (isset($model['context_length']) && $model['context_length'] > 0) {
+                    $context_k = round($model['context_length'] / 1000);
+                    $display_name .= ' [' . $context_k . 'k ctx]';
+                }
+
+                $models[] = [
+                    'id' => $id,
+                    'name' => $name,
+                    'display_name' => $display_name,
+                    'is_free' => $is_free,
+                    'context_length' => $model['context_length'] ?? 0,
+                ];
+            }
+
+            // Sort: free models first, then alphabetically
+            usort($models, function ($a, $b) {
+                if ($a['is_free'] !== $b['is_free']) {
+                    return $b['is_free'] - $a['is_free']; // Free first
+                }
+                return strcasecmp($a['name'], $b['name']);
+            });
+
+            // Cache the models
+            Configuration::set_cached_openrouter_models($models);
+
+            wp_send_json_success([
+                'models' => $models,
+                'from_cache' => false,
+            ]);
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage(),
+                'models' => [],
+            ]);
         }
     }
 

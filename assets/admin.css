@@ -381,6 +381,17 @@
     100% { transform: rotate(360deg); }
 }
 
+/* OpenRouter Model Selector */
+#ewheel-refresh-openrouter-models .dashicons.ewheel-spin {
+    animation: ewheel-spin 1s linear infinite;
+    display: inline-block;
+}
+
+#ewheel_importer_openrouter_model optgroup {
+    font-weight: 600;
+    color: #1e1e1e;
+}
+
 /* Profiles Tab */
 .ewheel-profiles-table {
     width: 100%;

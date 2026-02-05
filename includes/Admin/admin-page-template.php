@@ -260,10 +260,24 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                 </label>
                             </th>
                             <td>
-                                <input type="text" id="ewheel_importer_openrouter_model"
-                                    name="ewheel_importer_openrouter_model"
-                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free'); ?>"
-                                    class="regular-text" />
+                                <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                    <select id="ewheel_importer_openrouter_model"
+                                            name="ewheel_importer_openrouter_model"
+                                            style="min-width: 350px;">
+                                        <?php
+                                        $current_model = $settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free';
+                                        ?>
+                                        <option value="<?php echo esc_attr($current_model); ?>">
+                                            <?php echo esc_html($current_model . ' (' . __('Loading...', 'ewheel-importer') . ')'); ?>
+                                        </option>
+                                    </select>
+                                    <button type="button" id="ewheel-refresh-openrouter-models" class="button" title="<?php esc_attr_e('Refresh model list', 'ewheel-importer'); ?>">
+                                        <span class="dashicons dashicons-update" style="vertical-align: middle; line-height: 1.3;"></span>
+                                    </button>
+                                </div>
+                                <p class="description" id="ewheel-openrouter-model-status">
+                                    <?php esc_html_e('Select an LLM model for translations. Free models are listed first.', 'ewheel-importer'); ?>
+                                </p>
                             </td>
                         </tr>
                         <tr class="translation-row translation-google">

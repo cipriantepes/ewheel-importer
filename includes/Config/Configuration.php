@@ -31,6 +31,16 @@ class Configuration
     public const VARIATION_MODE_SIMPLE = 'simple';
 
     /**
+     * OpenRouter models transient key.
+     */
+    private const OPENROUTER_MODELS_TRANSIENT = 'ewheel_openrouter_models';
+
+    /**
+     * OpenRouter models cache duration (24 hours).
+     */
+    private const OPENROUTER_MODELS_CACHE_DURATION = 24 * HOUR_IN_SECONDS;
+
+    /**
      * Default configuration values.
      */
     private const DEFAULTS = [
@@ -268,5 +278,40 @@ class Configuration
             $settings[$key] = $this->get($key);
         }
         return $settings;
+    }
+
+    /**
+     * Get cached OpenRouter models.
+     *
+     * @return array|false Cached models or false if not cached.
+     */
+    public static function get_cached_openrouter_models()
+    {
+        return get_transient(self::OPENROUTER_MODELS_TRANSIENT);
+    }
+
+    /**
+     * Set cached OpenRouter models.
+     *
+     * @param array $models Models to cache.
+     * @return bool Success.
+     */
+    public static function set_cached_openrouter_models(array $models): bool
+    {
+        return set_transient(
+            self::OPENROUTER_MODELS_TRANSIENT,
+            $models,
+            self::OPENROUTER_MODELS_CACHE_DURATION
+        );
+    }
+
+    /**
+     * Clear cached OpenRouter models.
+     *
+     * @return bool Success.
+     */
+    public static function clear_cached_openrouter_models(): bool
+    {
+        return delete_transient(self::OPENROUTER_MODELS_TRANSIENT);
     }
 }
