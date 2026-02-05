@@ -323,59 +323,48 @@ class WooCommerceSync
      */
     public function process_ewheel_products_batch(array $ewheel_products, $profile_config = null): array
     {
-        // FIX: Ensure category map is loaded for this batch
-        // In background process, the transformer instance is fresh and empty
-        // Use combined mapping (auto + manual, manual takes precedence)
+        // Load category map for this batch
         if ($this->category_repository) {
             $category_map = $this->category_repository->get_combined_mapping();
-
-            // Debug: Log category map status
-            if (empty($category_map)) {
-                error_log('Ewheel Importer DEBUG: Category map is EMPTY. Categories may not be synced yet.');
-                error_log('Ewheel Importer DEBUG: Checking for categories with _ewheel_reference meta...');
-
-                // Check if any WooCommerce categories have the ewheel reference
-                $terms = get_terms([
-                    'taxonomy' => 'product_cat',
-                    'hide_empty' => false,
-                    'meta_query' => [
-                        [
-                            'key' => '_ewheel_reference',
-                            'compare' => 'EXISTS',
-                        ],
-                    ],
-                ]);
-
-                if (is_wp_error($terms)) {
-                    error_log('Ewheel Importer DEBUG: Error getting terms: ' . $terms->get_error_message());
-                } else {
-                    error_log('Ewheel Importer DEBUG: Found ' . count($terms) . ' categories with _ewheel_reference meta');
-                }
-            } else {
-                error_log('Ewheel Importer DEBUG: Category map loaded with ' . count($category_map) . ' mappings');
-                error_log('Ewheel Importer DEBUG: Category map keys: ' . implode(', ', array_keys($category_map)));
-            }
-
             $this->transformer->set_category_map($category_map);
-        } else {
-            error_log('Ewheel Importer DEBUG: Category repository is NULL - cannot load mappings');
         }
 
-        // Transform products
-        $woo_products = $this->transformer->transform_batch($ewheel_products);
+        $results = [
+            'created' => 0,
+            'updated' => 0,
+            'errors' => 0,
+        ];
 
-        // Debug: Check first product's categories
-        if (!empty($woo_products[0])) {
-            $first_product = $woo_products[0];
-            if (empty($first_product['categories'])) {
-                error_log('Ewheel Importer DEBUG: First transformed product has NO categories');
-            } else {
-                error_log('Ewheel Importer DEBUG: First transformed product has ' . count($first_product['categories']) . ' categories');
+        // Process products ONE AT A TIME to prevent memory exhaustion
+        // (Following WP All Import patterns)
+        foreach ($ewheel_products as $raw_product) {
+            // Transform single product (may return multiple if simple mode)
+            $transformed_products = $this->transformer->transform($raw_product);
+
+            // Process each transformed product
+            foreach ($transformed_products as $product_data) {
+                $result = $this->sync_single_product($product_data);
+
+                if ($result === 'created') {
+                    $results['created']++;
+                } elseif ($result === 'updated') {
+                    $results['updated']++;
+                } else {
+                    $results['errors']++;
+                }
+
+                // Memory cleanup after each product
+                unset($product_data);
             }
+
+            // Memory cleanup after each raw product
+            unset($raw_product, $transformed_products);
+
+            // Flush WP object cache periodically to prevent memory bloat
+            wp_cache_flush();
         }
 
-        // Process them
-        return $this->process_product_batch($woo_products);
+        return $results;
     }
 
     /**

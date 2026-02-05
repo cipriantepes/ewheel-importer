@@ -78,23 +78,27 @@ class ImageService {
             return null;
         }
 
-        $file_array = [
-            'name'     => $this->get_filename_from_url( $url ),
-            'tmp_name' => $temp_file,
-        ];
+        try {
+            $file_array = [
+                'name'     => $this->get_filename_from_url( $url ),
+                'tmp_name' => $temp_file,
+            ];
 
-        $attachment_id = media_handle_sideload( $file_array, 0 );
+            $attachment_id = media_handle_sideload( $file_array, 0 );
 
-        if ( is_wp_error( $attachment_id ) ) {
+            if ( is_wp_error( $attachment_id ) ) {
+                $this->log_error( 'Failed to create attachment: ' . $attachment_id->get_error_message(), $url );
+                return null;
+            }
+
+            // Store source URL for future lookups
+            update_post_meta( $attachment_id, self::SOURCE_URL_META, $url );
+
+            return $attachment_id;
+        } finally {
+            // Always clean up temp file (media_handle_sideload should move it, but be safe)
             $this->cleanup_temp_file( $temp_file );
-            $this->log_error( 'Failed to create attachment: ' . $attachment_id->get_error_message(), $url );
-            return null;
         }
-
-        // Store source URL for future lookups
-        update_post_meta( $attachment_id, self::SOURCE_URL_META, $url );
-
-        return $attachment_id;
     }
 
     /**

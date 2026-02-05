@@ -21,9 +21,10 @@ class SyncBatchProcessor
 {
 
     /**
-     * Batch size.
+     * Batch size - reduced from 50 to prevent memory exhaustion.
+     * WP All Import uses 20, we use 10 due to heavier processing (translations, images).
      */
-    private const BATCH_SIZE = 50;
+    private const BATCH_SIZE = 10;
 
     /**
      * Lock key prefix.
@@ -138,6 +139,10 @@ class SyncBatchProcessor
      */
     public function process_batch(int $page, string $sync_id, string $since = '', ?int $profile_id = null): void
     {
+        // Defer expensive term/comment counting until batch completes
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
+
         try {
             // Get profile configuration
             $profile_config = $this->get_profile_config($profile_id);
@@ -249,6 +254,9 @@ class SyncBatchProcessor
                 return;
             }
 
+            // Memory cleanup before scheduling next batch
+            $this->cleanup_batch_memory();
+
             if ($current_processed >= self::BATCH_SIZE && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
                     time() + 5, // 5 seconds delay to be nice to the server
@@ -274,6 +282,10 @@ class SyncBatchProcessor
             PersistentLogger::error("Batch Error (Page $page): " . $e->getMessage(), null, $sync_id, $profile_id);
             error_log("Ewheel Importer Batch Error (Page $page): " . $e->getMessage());
             $this->fail_sync($sync_id, $e->getMessage(), $profile_id);
+        } finally {
+            // Re-enable term/comment counting
+            wp_defer_term_counting(false);
+            wp_defer_comment_counting(false);
         }
     }
 
@@ -417,6 +429,29 @@ class SyncBatchProcessor
 
             // Release lock
             delete_transient($this->get_lock_key($profile_id));
+        }
+    }
+
+    /**
+     * Clean up memory after processing a batch.
+     *
+     * Applies WP All Import patterns to prevent memory exhaustion.
+     *
+     * @return void
+     */
+    private function cleanup_batch_memory(): void
+    {
+        // Clear WordPress object cache
+        wp_cache_flush();
+
+        // Clear WooCommerce session if available
+        if (function_exists('WC') && WC()->session) {
+            WC()->session = null;
+        }
+
+        // Force garbage collection
+        if (function_exists('gc_collect_cycles')) {
+            gc_collect_cycles();
         }
     }
 }
