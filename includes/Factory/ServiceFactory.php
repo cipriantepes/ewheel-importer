@@ -285,4 +285,16 @@ class ServiceFactory
     {
         return new ProfileRepository();
     }
+
+    /**
+     * Create a translator instance.
+     *
+     * @param Configuration $config Optional configuration (uses container default if not provided).
+     * @return Translator
+     */
+    public static function create_translator(?Configuration $config = null): Translator
+    {
+        $container = self::build_container();
+        return $container->get(Translator::class);
+    }
 }

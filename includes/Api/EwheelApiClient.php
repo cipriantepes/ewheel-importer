@@ -148,8 +148,7 @@ class EwheelApiClient
 
         $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
 
-        // DEBUG LOG
-        error_log("Ewheel API Request (POST): $url " . wp_json_encode($body));
+
         \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
 
         try {
@@ -159,9 +158,6 @@ class EwheelApiClient
                 $this->get_headers()
             );
 
-            // DEBUG LOG
-            error_log("Ewheel API Response Raw: " . print_r($response, true));
-
             // Extract data from wrapper
             $products = $this->extract_data($response);
 
@@ -169,7 +165,7 @@ class EwheelApiClient
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
 
             if ($count === 0) {
-                error_log("Ewheel API WARNING: 0 products returned. Raw Data Dump: " . print_r($response, true));
+                \Trotibike\EwheelImporter\Log\LiveLogger::log("API WARNING: 0 products returned.", 'warning');
             }
 
             if (!empty($products)) {
