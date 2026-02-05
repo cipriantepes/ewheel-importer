@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           1.2.1
+ * Version:           1.2.2
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.2.1');
+define('EWHEEL_IMPORTER_VERSION', '1.2.2');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -772,12 +772,27 @@ final class Ewheel_Importer
             $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
             $categories = $client->get_all_categories();
 
+            // Get translator to extract names from multilingual structures
+            $translator = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_translator($this->config);
+
             // Format categories for display
             $formatted = [];
             foreach ($categories as $cat) {
+                $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
+                $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
+
+                // Extract actual text from multilingual structure
+                // Handles both {"es": "..."} and {"translations": [...]} formats
+                $name = $translator->translate_multilingual($raw_name);
+
+                // Fallback to reference if extraction failed
+                if (empty($name)) {
+                    $name = $reference;
+                }
+
                 $formatted[] = [
-                    'reference' => $cat['reference'] ?? ($cat['Reference'] ?? ''),
-                    'name' => $cat['name'] ?? ($cat['Name'] ?? ''),
+                    'reference' => $reference,
+                    'name' => $name,
                     'parent' => $cat['parentReference'] ?? ($cat['ParentReference'] ?? null),
                 ];
             }
@@ -887,10 +902,22 @@ final class Ewheel_Importer
                 $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
                 $categories = $client->get_all_categories();
 
+                // Get translator to extract names from multilingual structures
+                $translator = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_translator($this->config);
+
                 foreach ($categories as $cat) {
+                    $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
+                    $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
+
+                    // Extract actual text from multilingual structure
+                    $name = $translator->translate_multilingual($raw_name);
+                    if (empty($name)) {
+                        $name = $reference;
+                    }
+
                     $ewheel_categories[] = [
-                        'reference' => $cat['reference'] ?? ($cat['Reference'] ?? ''),
-                        'name' => $cat['name'] ?? ($cat['Name'] ?? ''),
+                        'reference' => $reference,
+                        'name' => $name,
                     ];
                 }
             } catch (\Exception $e) {
