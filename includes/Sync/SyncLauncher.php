@@ -230,7 +230,7 @@ class SyncLauncher
         }
         PersistentLogger::info("Sync started (Profile: $profile_name)", null, $sync_id, $profile_id);
 
-        // Initialize sync status
+        // Initialize sync status with adaptive batch size settings
         update_option(
             $this->get_status_key($profile_id),
             [
@@ -246,6 +246,8 @@ class SyncLauncher
                 'limit' => $limit,
                 'type' => 'full',
                 'profile_id' => $profile_id,
+                'batch_size' => 10,      // Adaptive: starts at default
+                'failure_count' => 0,    // Adaptive: consecutive failures
             ]
         );
 
@@ -312,7 +314,7 @@ class SyncLauncher
         }
         PersistentLogger::info("Incremental sync started (since: $since, Profile: $profile_name)", null, $sync_id, $profile_id);
 
-        // Initialize sync status
+        // Initialize sync status with adaptive batch size settings
         update_option(
             $this->get_status_key($profile_id),
             [
@@ -329,6 +331,8 @@ class SyncLauncher
                 'type' => 'incremental',
                 'since' => $since,
                 'profile_id' => $profile_id,
+                'batch_size' => 10,      // Adaptive: starts at default
+                'failure_count' => 0,    // Adaptive: consecutive failures
             ]
         );
 

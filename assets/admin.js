@@ -79,6 +79,13 @@
                         msg = 'Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0);
                         if (data.created) msg += ' | Created: ' + data.created;
                         if (data.updated) msg += ' | Updated: ' + data.updated;
+                        // Show adaptive batch info when reduced from default
+                        if (data.batch_size && data.batch_size < 10) {
+                            msg += ' | Batch: ' + data.batch_size;
+                        }
+                        if (data.failure_count && data.failure_count > 0) {
+                            msg += ' | Retries: ' + data.failure_count;
+                        }
                     }
                     $status.removeClass('success error').addClass('syncing').text(msg);
                     break;
@@ -418,7 +425,15 @@
                     $cancelBtn.show();
                     $progress.show();
                     if (data) {
-                        $details.text('Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0));
+                        var detailsMsg = 'Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0);
+                        // Show adaptive batch info when reduced from default
+                        if (data.batch_size && data.batch_size < 10) {
+                            detailsMsg += ' | Batch: ' + data.batch_size;
+                        }
+                        if (data.failure_count && data.failure_count > 0) {
+                            detailsMsg += ' | Retries: ' + data.failure_count;
+                        }
+                        $details.text(detailsMsg);
                     }
                     break;
 

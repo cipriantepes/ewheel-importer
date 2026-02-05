@@ -21,10 +21,20 @@ class SyncBatchProcessor
 {
 
     /**
-     * Batch size - reduced from 50 to prevent memory exhaustion.
+     * Default batch size.
      * WP All Import uses 20, we use 10 due to heavier processing (translations, images).
      */
-    private const BATCH_SIZE = 10;
+    private const DEFAULT_BATCH_SIZE = 10;
+
+    /**
+     * Minimum batch size before giving up.
+     */
+    private const MIN_BATCH_SIZE = 1;
+
+    /**
+     * Maximum consecutive failures before stopping.
+     */
+    private const MAX_FAILURES = 4;
 
     /**
      * Lock key prefix.
@@ -154,10 +164,12 @@ class SyncBatchProcessor
 
             $profile = $profile_config->get_profile();
 
-            // Check status for limit
+            // Check status for limit and adaptive batch size
             $status = get_option($this->get_status_key($profile_id), []);
             $limit = isset($status['limit']) ? (int) $status['limit'] : 0;
             $processed = isset($status['processed']) ? (int) $status['processed'] : 0;
+            $batch_size = isset($status['batch_size']) ? (int) $status['batch_size'] : self::DEFAULT_BATCH_SIZE;
+            $failure_count = isset($status['failure_count']) ? (int) $status['failure_count'] : 0;
 
             // Check if limit already reached
             if ($limit > 0 && $processed >= $limit) {
@@ -209,8 +221,8 @@ class SyncBatchProcessor
                 $api_filters['Active'] = 1;
             }
 
-            // Fetch products for this page with profile filters
-            $products = $this->api_client->get_products($page, self::BATCH_SIZE, $api_filters);
+            // Fetch products for this page with adaptive batch size
+            $products = $this->api_client->get_products($page, $batch_size, $api_filters);
 
             if (empty($products)) {
                 PersistentLogger::info(
@@ -243,6 +255,11 @@ class SyncBatchProcessor
             // Update progress with detailed counts
             $this->update_progress($sync_id, $page, count($products), $batch_result, $profile_id);
 
+            // Success - reset failure count (batch completed without exception)
+            if ($failure_count > 0) {
+                $this->update_batch_metrics($sync_id, $profile_id, $batch_size, 0);
+            }
+
             // Schedule next batch if we got a full page AND limit not reached
             $current_processed = count($products);
             $total_processed = $processed + $current_processed;
@@ -257,7 +274,7 @@ class SyncBatchProcessor
             // Memory cleanup before scheduling next batch
             $this->cleanup_batch_memory();
 
-            if ($current_processed >= self::BATCH_SIZE && ($limit === 0 || $total_processed < $limit)) {
+            if ($current_processed >= $batch_size && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
                     time() + 5, // 5 seconds delay to be nice to the server
                     'ewheel_importer_process_batch',
@@ -279,9 +296,15 @@ class SyncBatchProcessor
             }
 
         } catch (\Exception $e) {
-            PersistentLogger::error("Batch Error (Page $page): " . $e->getMessage(), null, $sync_id, $profile_id);
             error_log("Ewheel Importer Batch Error (Page $page): " . $e->getMessage());
-            $this->fail_sync($sync_id, $e->getMessage(), $profile_id);
+
+            // Get current batch metrics for adaptive retry
+            $status = get_option($this->get_status_key($profile_id), []);
+            $batch_size = isset($status['batch_size']) ? (int) $status['batch_size'] : self::DEFAULT_BATCH_SIZE;
+            $failure_count = isset($status['failure_count']) ? (int) $status['failure_count'] : 0;
+
+            // Use adaptive retry instead of immediate failure
+            $this->handle_batch_failure($sync_id, $profile_id, $page, $batch_size, $failure_count, $e, $since);
         } finally {
             // Re-enable term/comment counting
             wp_defer_term_counting(false);
@@ -453,5 +476,167 @@ class SyncBatchProcessor
         if (function_exists('gc_collect_cycles')) {
             gc_collect_cycles();
         }
+    }
+
+    /**
+     * Handle batch failure with adaptive retry.
+     *
+     * Reduces batch size and reschedules the same page for retry.
+     * Gives up after MAX_FAILURES consecutive failures.
+     *
+     * @param string     $sync_id       Unique sync ID.
+     * @param int|null   $profile_id    Profile ID.
+     * @param int        $page          Current page number.
+     * @param int        $batch_size    Current batch size.
+     * @param int        $failure_count Current failure count.
+     * @param \Exception $e             The exception that caused the failure.
+     * @param string     $since         Incremental sync date filter.
+     * @return void
+     */
+    private function handle_batch_failure(
+        string $sync_id,
+        ?int $profile_id,
+        int $page,
+        int $batch_size,
+        int $failure_count,
+        \Exception $e,
+        string $since
+    ): void {
+        $failure_count++;
+        $new_batch_size = max(self::MIN_BATCH_SIZE, (int) ceil($batch_size / 2));
+
+        PersistentLogger::warning(
+            sprintf(
+                'Batch failed. Reducing batch size from %d to %d. Failure %d/%d. Error: %s',
+                $batch_size,
+                $new_batch_size,
+                $failure_count,
+                self::MAX_FAILURES,
+                $e->getMessage()
+            ),
+            null,
+            $sync_id,
+            $profile_id
+        );
+
+        // Check if we should give up
+        if ($failure_count > self::MAX_FAILURES) {
+            PersistentLogger::error(
+                'Max failures reached (' . self::MAX_FAILURES . '). Stopping sync.',
+                null,
+                $sync_id,
+                $profile_id
+            );
+            $this->fail_sync($sync_id, 'Too many failures: ' . $e->getMessage(), $profile_id);
+            return;
+        }
+
+        // If batch size is already at minimum and still failing, give up
+        if ($batch_size <= self::MIN_BATCH_SIZE) {
+            PersistentLogger::error(
+                'Batch size at minimum (' . self::MIN_BATCH_SIZE . ') and still failing. Stopping sync.',
+                null,
+                $sync_id,
+                $profile_id
+            );
+            $this->fail_sync($sync_id, 'Failed at minimum batch size: ' . $e->getMessage(), $profile_id);
+            return;
+        }
+
+        // Update status with new batch size and failure count
+        $this->update_batch_metrics($sync_id, $profile_id, $new_batch_size, $failure_count);
+
+        // Reschedule same page with smaller batch size
+        as_schedule_single_action(
+            time() + 10, // Longer delay after failure (10 seconds)
+            'ewheel_importer_process_batch',
+            [
+                'page' => $page, // SAME page - retry with smaller batch
+                'sync_id' => $sync_id,
+                'since' => $since,
+                'profile_id' => $profile_id,
+            ]
+        );
+
+        PersistentLogger::info(
+            sprintf('Rescheduled page %d with batch size %d', $page, $new_batch_size),
+            null,
+            $sync_id,
+            $profile_id
+        );
+    }
+
+    /**
+     * Update batch metrics in sync status.
+     *
+     * @param string   $sync_id       Unique sync ID.
+     * @param int|null $profile_id    Profile ID.
+     * @param int      $batch_size    Current batch size.
+     * @param int      $failure_count Current failure count.
+     * @return void
+     */
+    private function update_batch_metrics(
+        string $sync_id,
+        ?int $profile_id,
+        int $batch_size,
+        int $failure_count
+    ): void {
+        $status = get_option($this->get_status_key($profile_id), []);
+
+        if (isset($status['id']) && $status['id'] === $sync_id) {
+            $status['batch_size'] = $batch_size;
+            $status['failure_count'] = $failure_count;
+            $status['last_update'] = time();
+            update_option($this->get_status_key($profile_id), $status);
+        }
+    }
+
+    /**
+     * Check if memory usage is approaching the limit.
+     *
+     * @return bool True if memory is at critical level (85%+ of limit).
+     */
+    private function is_memory_critical(): bool
+    {
+        $memory_limit = $this->get_memory_limit_bytes();
+        if ($memory_limit <= 0) {
+            return false; // Unlimited memory
+        }
+
+        $current_usage = memory_get_usage(true);
+        $threshold = 0.85; // 85% of limit
+
+        return ($current_usage / $memory_limit) >= $threshold;
+    }
+
+    /**
+     * Get PHP memory limit in bytes.
+     *
+     * @return int Memory limit in bytes, or -1 if unlimited.
+     */
+    private function get_memory_limit_bytes(): int
+    {
+        $limit = ini_get('memory_limit');
+
+        if ($limit === '-1') {
+            return -1; // Unlimited
+        }
+
+        $limit = trim($limit);
+        $last = strtolower($limit[strlen($limit) - 1]);
+        $value = (int) $limit;
+
+        switch ($last) {
+            case 'g':
+                $value *= 1024;
+                // Fall through
+            case 'm':
+                $value *= 1024;
+                // Fall through
+            case 'k':
+                $value *= 1024;
+        }
+
+        return $value;
     }
 }
