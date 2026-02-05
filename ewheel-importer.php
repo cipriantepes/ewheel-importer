@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           1.2.8
+ * Version:           1.2.9
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.2.8');
+define('EWHEEL_IMPORTER_VERSION', '1.2.9');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -213,6 +213,9 @@ final class Ewheel_Importer
         // OpenRouter model AJAX handlers
         add_action('wp_ajax_ewheel_get_openrouter_models', [$this, 'ajax_get_openrouter_models']);
         add_action('wp_ajax_ewheel_refresh_openrouter_models', [$this, 'ajax_refresh_openrouter_models']);
+
+        // Queue management
+        add_action('wp_ajax_ewheel_clear_queue', [$this, 'ajax_clear_queue']);
 
         // Cron
         add_action('ewheel_importer_cron_sync', [$this, 'run_scheduled_sync']);
@@ -1333,6 +1336,35 @@ final class Ewheel_Importer
         // Clear cache and fetch fresh
         Configuration::clear_cached_openrouter_models();
         $this->fetch_and_cache_openrouter_models();
+    }
+
+    /**
+     * AJAX: Clear Action Scheduler queue and sync locks.
+     *
+     * @return void
+     */
+    public function ajax_clear_queue(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        // Clear all pending/failed ewheel batch actions
+        as_unschedule_all_actions('ewheel_importer_process_batch');
+
+        // Clear sync status and locks
+        global $wpdb;
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_sync_status%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_stop_sync%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_pause_sync%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient%ewheel_importer_sync_lock%'");
+
+        // Update sync history: mark any 'running' as 'stopped'
+        \Trotibike\EwheelImporter\Sync\SyncHistoryManager::stop_all_running();
+
+        wp_send_json_success(['message' => __('Queue cleared successfully', 'ewheel-importer')]);
     }
 
     /**

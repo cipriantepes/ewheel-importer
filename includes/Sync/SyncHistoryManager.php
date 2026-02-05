@@ -236,6 +236,34 @@ class SyncHistoryManager
     }
 
     /**
+     * Stop all running syncs (used when clearing queue).
+     *
+     * @return int Number of syncs stopped.
+     */
+    public static function stop_all_running(): int
+    {
+        global $wpdb;
+
+        $table_name = $wpdb->prefix . SchemaInstaller::SYNC_HISTORY_TABLE;
+
+        if (!self::table_exists()) {
+            return 0;
+        }
+
+        $now = current_time('mysql');
+
+        return (int) $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE $table_name SET status = %s, completed_at = %s WHERE status IN (%s, %s)",
+                self::STATUS_STOPPED,
+                $now,
+                self::STATUS_RUNNING,
+                self::STATUS_PAUSED
+            )
+        );
+    }
+
+    /**
      * Mark sync as paused by user.
      *
      * @param string $sync_id Sync ID.

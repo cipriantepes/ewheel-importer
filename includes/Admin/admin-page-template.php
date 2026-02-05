@@ -468,6 +468,33 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                             ?>
                         </p>
                     <?php endif; ?>
+
+                    <?php
+                    // Check Action Scheduler queue for stuck batches
+                    $pending_actions = as_get_scheduled_actions([
+                        'hook' => 'ewheel_importer_process_batch',
+                        'status' => \ActionScheduler_Store::STATUS_PENDING,
+                    ], 'ids');
+                    $failed_actions = as_get_scheduled_actions([
+                        'hook' => 'ewheel_importer_process_batch',
+                        'status' => \ActionScheduler_Store::STATUS_FAILED,
+                    ], 'ids');
+                    $pending_count = is_array($pending_actions) ? count($pending_actions) : 0;
+                    $failed_count = is_array($failed_actions) ? count($failed_actions) : 0;
+
+                    if ($pending_count > 0 || $failed_count > 0): ?>
+                        <p class="description" style="margin-top: 10px; padding: 8px; background: #fff3cd; border-left: 4px solid #ffc107;">
+                            <strong><?php esc_html_e('Queue Issue:', 'ewheel-importer'); ?></strong>
+                            <?php echo esc_html($pending_count); ?> <?php esc_html_e('pending', 'ewheel-importer'); ?>,
+                            <?php echo esc_html($failed_count); ?> <?php esc_html_e('failed batches', 'ewheel-importer'); ?>
+                            <button type="button" id="ewheel-clear-queue" class="button button-small" style="margin-left: 10px;">
+                                <?php esc_html_e('Clear Queue', 'ewheel-importer'); ?>
+                            </button>
+                            <a href="<?php echo esc_url(admin_url('tools.php?page=action-scheduler&s=ewheel_importer_process_batch')); ?>" style="margin-left: 5px;">
+                                <?php esc_html_e('View', 'ewheel-importer'); ?>
+                            </a>
+                        </p>
+                    <?php endif; ?>
                 </div>
 
                 <div class="ewheel-importer-box">
@@ -1052,6 +1079,37 @@ jQuery(document).ready(function($) {
             error: function() {
                 alert('<?php esc_html_e('Network error. Please try again.', 'ewheel-importer'); ?>');
                 $btn.prop('disabled', false).text('<?php esc_html_e('Cancel', 'ewheel-importer'); ?>');
+            }
+        });
+    });
+
+    // Clear queue button
+    $('#ewheel-clear-queue').on('click', function() {
+        if (!confirm('<?php esc_html_e('Clear all pending sync batches and reset locks? This will stop any running syncs.', 'ewheel-importer'); ?>')) {
+            return;
+        }
+
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('<?php esc_html_e('Clearing...', 'ewheel-importer'); ?>');
+
+        $.ajax({
+            url: ewheelImporter.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'ewheel_clear_queue',
+                nonce: ewheelImporter.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    location.reload();
+                } else {
+                    alert('<?php esc_html_e('Error:', 'ewheel-importer'); ?> ' + response.data.message);
+                    $btn.prop('disabled', false).text('<?php esc_html_e('Clear Queue', 'ewheel-importer'); ?>');
+                }
+            },
+            error: function() {
+                alert('<?php esc_html_e('Network error. Please try again.', 'ewheel-importer'); ?>');
+                $btn.prop('disabled', false).text('<?php esc_html_e('Clear Queue', 'ewheel-importer'); ?>');
             }
         });
     });
