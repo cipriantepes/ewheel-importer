@@ -421,8 +421,8 @@ class ProductTransformer
 
             if (!empty($name) && $final_val !== null) {
                 $woo_attributes[] = [
-                    'name' => $this->format_attribute_name((string) $name),
-                    'options' => [$final_val],
+                    'name' => $this->translate_attribute_name((string) $name),
+                    'options' => [$this->translate_attribute_value($final_val)],
                     'visible' => true,
                     'variation' => false,
                 ];
@@ -535,14 +535,30 @@ class ProductTransformer
     {
         $woo_categories = [];
 
+        // Debug: Log incoming category refs and map status
+        if (empty($this->category_map)) {
+            error_log('Ewheel Importer DEBUG (transform_categories): Category map is EMPTY');
+        }
+
         foreach ($category_refs as $item) {
             // Handle object structure
             $ref = is_array($item) ? ($item['reference'] ?? ($item['Reference'] ?? '')) : $item;
+
+            // Debug: Log each category reference
+            error_log('Ewheel Importer DEBUG (transform_categories): Processing category ref: "' . $ref . '"');
 
             if ($ref && isset($this->category_map[$ref])) {
                 $woo_categories[] = [
                     'id' => $this->category_map[$ref],
                 ];
+                error_log('Ewheel Importer DEBUG (transform_categories): MATCHED ref "' . $ref . '" to WooCommerce ID ' . $this->category_map[$ref]);
+            } else {
+                error_log('Ewheel Importer DEBUG (transform_categories): NO MATCH for ref "' . $ref . '" in category_map');
+
+                // Debug: Show available keys if there's a mismatch
+                if (!empty($this->category_map) && !isset($this->category_map[$ref])) {
+                    error_log('Ewheel Importer DEBUG (transform_categories): Available keys: ' . implode(', ', array_keys($this->category_map)));
+                }
             }
         }
 
@@ -568,7 +584,7 @@ class ProductTransformer
         }
 
         if (is_array($value)) {
-            $value = implode(', ', $value);
+            $value = implode(' | ', $value);
         }
 
         $str_val = (string) $value;
@@ -592,7 +608,7 @@ class ProductTransformer
                     }
                 }
                 if (!empty($parts)) {
-                    return implode(', ', $parts);
+                    return implode(' | ', $parts);
                 }
                 // Fallback: if we can't extract useful info, return null or empty to skip
                 return null;
@@ -633,9 +649,13 @@ class ProductTransformer
                 continue;
             }
 
+            // Translate attribute name and value
+            $translated_name = $this->translate_attribute_name((string) $attr_name);
+            $translated_val = $this->translate_attribute_value($final_val);
+
             $woo_attributes[] = [
-                'name' => $this->format_attribute_name((string) $attr_name),
-                'options' => [$final_val],
+                'name' => $translated_name,
+                'options' => [$translated_val],
                 'visible' => true,
                 'variation' => false,
             ];
@@ -684,12 +704,17 @@ class ProductTransformer
             }
         }
 
-        // Convert to WooCommerce format
+        // Convert to WooCommerce format with translation
         $woo_attributes = [];
         foreach ($attribute_values as $name => $values) {
+            // Translate each value
+            $translated_values = array_map(function ($val) {
+                return $this->translate_attribute_value($val);
+            }, $values);
+
             $woo_attributes[] = [
-                'name' => $this->format_attribute_name((string) $name),
-                'options' => $values,
+                'name' => $this->translate_attribute_name((string) $name),
+                'options' => $translated_values,
                 'visible' => true,
                 'variation' => true,
             ];
@@ -735,7 +760,7 @@ class ProductTransformer
                 $value = $normal_attr['value'];
 
                 if (is_array($value)) {
-                    $value = implode(', ', $value);
+                    $value = implode(' | ', $value);
                 }
 
                 // Check for dimensions
@@ -752,8 +777,8 @@ class ProductTransformer
 
                 if (!empty($name) && !empty($value)) {
                     $variation['attributes'][] = [
-                        'name' => $this->format_attribute_name((string) $name),
-                        'option' => (string) $value,
+                        'name' => $this->translate_attribute_name((string) $name),
+                        'option' => $this->translate_attribute_value((string) $value),
                     ];
                 }
             }
@@ -801,6 +826,46 @@ class ProductTransformer
         // Convert snake_case to Title Case
         $name = str_replace(['_', '-'], ' ', $name);
         return ucwords($name);
+    }
+
+    /**
+     * Translate attribute name to target language.
+     *
+     * @param string $name The attribute name (e.g., "marca", "color").
+     * @return string The translated and formatted name.
+     */
+    private function translate_attribute_name(string $name): string
+    {
+        // First format the name
+        $formatted = $this->format_attribute_name($name);
+
+        // Translate the formatted name to target language
+        $translated = $this->translator->translate($formatted);
+
+        return !empty($translated) ? $translated : $formatted;
+    }
+
+    /**
+     * Translate attribute value to target language.
+     *
+     * @param string $value The attribute value.
+     * @return string The translated value.
+     */
+    private function translate_attribute_value(string $value): string
+    {
+        // Skip translation for numeric values, URLs, file paths, and codes
+        if (is_numeric($value)
+            || preg_match('/^https?:\/\//', $value)
+            || preg_match('/\.(pdf|jpg|png|gif)$/i', $value)
+            || preg_match('/^\d+(\.\d+)?\s*(kg|cm|mm|m|g|l|ml)$/i', $value)
+        ) {
+            return $value;
+        }
+
+        // Translate text values
+        $translated = $this->translator->translate($value);
+
+        return !empty($translated) ? $translated : $value;
     }
 
     /**
