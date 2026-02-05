@@ -9,6 +9,7 @@ namespace Trotibike\EwheelImporter\Sync;
 
 use Trotibike\EwheelImporter\Api\EwheelApiClient;
 use Trotibike\EwheelImporter\Config\Configuration;
+use Trotibike\EwheelImporter\Log\PersistentLogger;
 
 /**
  * Handles synchronization with WooCommerce.
@@ -109,10 +110,78 @@ class WooCommerceSync
         $ewheel_categories = $this->ewheel_client->get_all_categories();
         $category_map = [];
 
+        // Use cache-first approach to avoid overwhelming translation API
+        $translation_repo = new \Trotibike\EwheelImporter\Repository\TranslationRepository();
+        $target_lang = $this->config->get_target_language();
+
+        // First pass: extract source texts and prepare cache lookup
+        $category_data = [];
+        $texts_by_lang = [];
         foreach ($ewheel_categories as $category) {
-            $woo_category_id = $this->sync_single_category($category);
+            $reference = $category['reference'] ?? ($category['Reference'] ?? '');
+            $raw_name = $category['name'] ?? ($category['Name'] ?? $reference);
+
+            // Extract source text (prefer English over Spanish)
+            $source_text = '';
+            $source_lang = 'en';
+            if (is_array($raw_name)) {
+                if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
+                    foreach (['en', 'es'] as $preferred_lang) {
+                        foreach ($raw_name['translations'] as $t) {
+                            if (isset($t['reference']) && $t['reference'] === $preferred_lang && !empty($t['value'])) {
+                                $source_text = $t['value'];
+                                $source_lang = $preferred_lang;
+                                break 2;
+                            }
+                        }
+                    }
+                    if (empty($source_text) && !empty($raw_name['translations'][0]['value'])) {
+                        $source_text = $raw_name['translations'][0]['value'];
+                        $source_lang = $raw_name['translations'][0]['reference'] ?? 'en';
+                    }
+                } elseif (!empty($raw_name['en'])) {
+                    $source_text = $raw_name['en'];
+                    $source_lang = 'en';
+                } elseif (!empty($raw_name['es'])) {
+                    $source_text = $raw_name['es'];
+                    $source_lang = 'es';
+                }
+            } else {
+                $source_text = (string) $raw_name;
+            }
+
+            if (empty($source_text)) {
+                $source_text = $reference;
+            }
+
+            $category_data[$reference] = [
+                'category' => $category,
+                'source_text' => $source_text,
+                'source_lang' => $source_lang,
+            ];
+            $texts_by_lang[$source_lang][] = $source_text;
+        }
+
+        // Batch query cache (1-2 DB queries total)
+        $cache_map = [];
+        foreach ($texts_by_lang as $src_lang => $texts) {
+            $batch_result = $translation_repo->get_batch($texts, $src_lang, $target_lang);
+            foreach ($texts as $text) {
+                $hash = $translation_repo->generate_hash($text, $src_lang, $target_lang);
+                if (isset($batch_result[$hash])) {
+                    $cache_map[$hash] = $batch_result[$hash];
+                }
+            }
+        }
+
+        // Second pass: create/update categories using cached translations or original text
+        foreach ($category_data as $reference => $data) {
+            $hash = $translation_repo->generate_hash($data['source_text'], $data['source_lang'], $target_lang);
+            $name = $cache_map[$hash] ?? $data['source_text'];
+
+            $woo_category_id = $this->sync_single_category_with_name($data['category'], $name);
             if ($woo_category_id) {
-                $category_map[$category['reference']] = $woo_category_id;
+                $category_map[$reference] = $woo_category_id;
             }
         }
 
@@ -123,22 +192,17 @@ class WooCommerceSync
     }
 
     /**
-     * Sync a single category.
+     * Sync a single category with a pre-computed name.
      *
-     * @param array $ewheel_category The ewheel category data.
+     * @param array  $ewheel_category The ewheel category data.
+     * @param string $name            The category name (already translated or original).
      * @return int|null The WooCommerce category ID or null on failure.
      */
-    private function sync_single_category(array $ewheel_category): ?int
+    private function sync_single_category_with_name(array $ewheel_category, string $name): ?int
     {
         $reference = $ewheel_category['reference'] ?? ($ewheel_category['Reference'] ?? '');
-        $raw_name = $ewheel_category['name'] ?? ($ewheel_category['Name'] ?? $reference);
 
-        // Use transformer to translate category name to target language (Romanian)
-        // This handles both simple {"es": "...", "en": "..."} and complex
-        // {"defaultLanguageCode": "es", "translations": [...]} formats
-        $name = $this->transformer->translate_text($raw_name);
-
-        // Fallback to reference if translation failed
+        // Fallback to reference if name is empty
         if (empty($name)) {
             $name = $reference;
         }
@@ -164,7 +228,6 @@ class WooCommerceSync
             'product_cat',
             [
                 // Let WP generate slug from name for SEO
-                // 'slug' => sanitize_title($reference), 
             ]
         );
 
@@ -323,6 +386,9 @@ class WooCommerceSync
      */
     public function process_ewheel_products_batch(array $ewheel_products, $profile_config = null): array
     {
+        // DEBUG: Log batch start
+        PersistentLogger::info("[DEBUG] process_ewheel_products_batch called with " . count($ewheel_products) . " products");
+
         // Load category map for this batch
         if ($this->category_repository) {
             $category_map = $this->category_repository->get_combined_mapping();
@@ -338,8 +404,19 @@ class WooCommerceSync
         // Process products ONE AT A TIME to prevent memory exhaustion
         // (Following WP All Import patterns)
         foreach ($ewheel_products as $raw_product) {
+            // DEBUG: Log each product being processed
+            $raw_ref = $raw_product['reference'] ?? ($raw_product['Reference'] ?? 'no-ref');
+            $raw_name = $raw_product['productName']['es'] ?? ($raw_product['productName'] ?? ($raw_product['name']['es'] ?? ($raw_product['name'] ?? 'no-name')));
+            if (is_array($raw_name)) {
+                $raw_name = $raw_name['es'] ?? reset($raw_name) ?: 'no-name';
+            }
+            PersistentLogger::info("[DEBUG] Processing ewheel product: reference={$raw_ref}, name=" . substr($raw_name, 0, 50));
+
             // Transform single product (may return multiple if simple mode)
             $transformed_products = $this->transformer->transform($raw_product);
+
+            // DEBUG: Log transformation result
+            PersistentLogger::info("[DEBUG] Transformer returned " . count($transformed_products) . " products for reference " . $raw_ref);
 
             // Process each transformed product
             foreach ($transformed_products as $product_data) {
@@ -408,9 +485,13 @@ class WooCommerceSync
         // Check if product exists by SKU
         $existing_id = wc_get_product_id_by_sku($sku);
 
+        // DEBUG: Log SKU lookup result
+        PersistentLogger::info("[DEBUG] sync_single_product - SKU: {$sku}, existing_id: " . ($existing_id ?: 'none'));
+
         try {
             if ($existing_id) {
                 $this->update_product($existing_id, $product_data);
+                PersistentLogger::info("[DEBUG] Product updated - ID: {$existing_id}, SKU: {$sku}");
                 return 'updated';
             } else {
                 // Before creating, check for parent relationship
@@ -423,10 +504,12 @@ class WooCommerceSync
                     ];
                 }
 
-                $this->create_product($product_data);
+                $new_id = $this->create_product($product_data);
+                PersistentLogger::info("[DEBUG] Product created - ID: {$new_id}, SKU: {$sku}");
                 return 'created';
             }
         } catch (\Exception $e) {
+            PersistentLogger::error("[DEBUG] Exception in sync_single_product for SKU {$sku}: " . $e->getMessage());
             // Log to persistent logger if available
             if (class_exists(\Trotibike\EwheelImporter\Log\PersistentLogger::class)) {
                 \Trotibike\EwheelImporter\Log\PersistentLogger::error(
