@@ -1256,7 +1256,16 @@ jQuery(document).ready(function($) {
                 if (response.success) {
                     renderCategoryMappings(response.data);
                     categoryMappingsLoaded = true;
+                } else {
+                    $('#ewheel-category-mapping-container').html(
+                        '<div class="notice notice-error"><p>Failed to load mappings: ' + (response.data?.message || 'Unknown error') + '</p></div>'
+                    );
                 }
+            },
+            error: function(xhr, status, error) {
+                $('#ewheel-category-mapping-container').html(
+                    '<div class="notice notice-error"><p>Failed to load category mappings. Please try again.</p></div>'
+                );
             }
         });
     }

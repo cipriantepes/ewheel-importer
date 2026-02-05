@@ -865,28 +865,71 @@ final class Ewheel_Importer
             $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
             $categories = $client->get_all_categories();
 
-            // Get translator to extract names from multilingual structures
-            $translator = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_translator($this->config);
+            // Use cache-first approach with batch query to avoid N+1 database calls
+            $translation_repo = new \Trotibike\EwheelImporter\Repository\TranslationRepository();
+            $target_lang = $this->config->get_target_language();
 
-            // Format categories for display
-            $formatted = [];
+            // First pass: extract source texts grouped by source language
+            $category_data = [];
+            $texts_by_lang = [];
             foreach ($categories as $cat) {
                 $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
                 $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
+                $parent = $cat['parentReference'] ?? ($cat['ParentReference'] ?? null);
 
-                // Extract actual text from multilingual structure
-                // Handles both {"es": "..."} and {"translations": [...]} formats
-                $name = $translator->translate_multilingual($raw_name);
-
-                // Fallback to reference if extraction failed
-                if (empty($name)) {
-                    $name = $reference;
+                $source_text = '';
+                $source_lang = 'es';
+                if (is_array($raw_name)) {
+                    if (!empty($raw_name['es'])) {
+                        $source_text = $raw_name['es'];
+                        $source_lang = 'es';
+                    } elseif (!empty($raw_name['en'])) {
+                        $source_text = $raw_name['en'];
+                        $source_lang = 'en';
+                    } else {
+                        $first_key = array_key_first($raw_name);
+                        $source_text = $first_key ? ($raw_name[$first_key] ?: '') : '';
+                        $source_lang = $first_key ?: 'es';
+                    }
+                } else {
+                    $source_text = (string) $raw_name;
                 }
 
-                $formatted[] = [
+                if (empty($source_text)) {
+                    $source_text = $reference;
+                }
+
+                $category_data[] = [
                     'reference' => $reference,
+                    'source_text' => $source_text,
+                    'source_lang' => $source_lang,
+                    'parent' => $parent,
+                ];
+                $texts_by_lang[$source_lang][] = $source_text;
+            }
+
+            // Batch query cache per source language (typically 1-2 queries total)
+            $cache_map = [];
+            foreach ($texts_by_lang as $src_lang => $texts) {
+                $batch_result = $translation_repo->get_batch($texts, $src_lang, $target_lang);
+                foreach ($texts as $text) {
+                    $hash = $translation_repo->generate_hash($text, $src_lang, $target_lang);
+                    if (isset($batch_result[$hash])) {
+                        $cache_map[$hash] = $batch_result[$hash];
+                    }
+                }
+            }
+
+            // Second pass: build final list using cached translations
+            $formatted = [];
+            foreach ($category_data as $data) {
+                $hash = $translation_repo->generate_hash($data['source_text'], $data['source_lang'], $target_lang);
+                $name = $cache_map[$hash] ?? $data['source_text'];
+
+                $formatted[] = [
+                    'reference' => $data['reference'],
                     'name' => $name,
-                    'parent' => $cat['parentReference'] ?? ($cat['ParentReference'] ?? null),
+                    'parent' => $data['parent'],
                 ];
             }
 
@@ -995,21 +1038,66 @@ final class Ewheel_Importer
                 $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
                 $categories = $client->get_all_categories();
 
-                // Get translator to extract names from multilingual structures
-                $translator = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_translator($this->config);
+                // Use cache-first approach with batch query to avoid N+1 database calls
+                $translation_repo = new \Trotibike\EwheelImporter\Repository\TranslationRepository();
+                $target_lang = $this->config->get_target_language();
 
+                // First pass: extract source texts grouped by source language
+                $category_data = [];
+                $texts_by_lang = [];
                 foreach ($categories as $cat) {
                     $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
                     $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
 
-                    // Extract actual text from multilingual structure
-                    $name = $translator->translate_multilingual($raw_name);
-                    if (empty($name)) {
-                        $name = $reference;
+                    $source_text = '';
+                    $source_lang = 'es';
+                    if (is_array($raw_name)) {
+                        if (!empty($raw_name['es'])) {
+                            $source_text = $raw_name['es'];
+                            $source_lang = 'es';
+                        } elseif (!empty($raw_name['en'])) {
+                            $source_text = $raw_name['en'];
+                            $source_lang = 'en';
+                        } else {
+                            $first_key = array_key_first($raw_name);
+                            $source_text = $first_key ? ($raw_name[$first_key] ?: '') : '';
+                            $source_lang = $first_key ?: 'es';
+                        }
+                    } else {
+                        $source_text = (string) $raw_name;
                     }
 
-                    $ewheel_categories[] = [
+                    if (empty($source_text)) {
+                        $source_text = $reference;
+                    }
+
+                    $category_data[] = [
                         'reference' => $reference,
+                        'source_text' => $source_text,
+                        'source_lang' => $source_lang,
+                    ];
+                    $texts_by_lang[$source_lang][] = $source_text;
+                }
+
+                // Batch query cache per source language (typically 1-2 queries total)
+                $cache_map = [];
+                foreach ($texts_by_lang as $src_lang => $texts) {
+                    $batch_result = $translation_repo->get_batch($texts, $src_lang, $target_lang);
+                    foreach ($texts as $text) {
+                        $hash = $translation_repo->generate_hash($text, $src_lang, $target_lang);
+                        if (isset($batch_result[$hash])) {
+                            $cache_map[$hash] = $batch_result[$hash];
+                        }
+                    }
+                }
+
+                // Second pass: build final list using cached translations
+                foreach ($category_data as $data) {
+                    $hash = $translation_repo->generate_hash($data['source_text'], $data['source_lang'], $target_lang);
+                    $name = $cache_map[$hash] ?? $data['source_text'];
+
+                    $ewheel_categories[] = [
+                        'reference' => $data['reference'],
                         'name' => $name,
                     ];
                 }

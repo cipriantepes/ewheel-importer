@@ -164,6 +164,10 @@ class SyncBatchProcessor
 
             $profile = $profile_config->get_profile();
 
+            // DEBUG: Log batch start with all parameters
+            PersistentLogger::info("[DEBUG] Batch start - page: {$page}, sync_id: {$sync_id}, profile_id: " . ($profile_id ?: 'none'), null, $sync_id, $profile_id);
+            PersistentLogger::info("[DEBUG] Profile: " . $profile_config->get_profile_name() . ", variation_mode: " . $profile_config->get_variation_mode(), null, $sync_id, $profile_id);
+
             // Check status for limit and adaptive batch size
             $status = get_option($this->get_status_key($profile_id), []);
             $limit = isset($status['limit']) ? (int) $status['limit'] : 0;
@@ -221,10 +225,18 @@ class SyncBatchProcessor
                 $api_filters['Active'] = 1;
             }
 
+            // DEBUG: Log API filters and call
+            PersistentLogger::info("[DEBUG] API filters: " . wp_json_encode($api_filters), null, $sync_id, $profile_id);
+            PersistentLogger::info("[DEBUG] Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
+
             // Fetch products for this page with adaptive batch size
             $products = $this->api_client->get_products($page, $batch_size, $api_filters);
 
+            // DEBUG: Log API response
+            PersistentLogger::info("[DEBUG] API returned " . count($products) . " products", null, $sync_id, $profile_id);
+
             if (empty($products)) {
+                PersistentLogger::info("[DEBUG] No products from API - ending sync", null, $sync_id, $profile_id);
                 PersistentLogger::info(
                     sprintf('No products returned from API for profile "%s". Batch complete.', $profile->get_name()),
                     null,
@@ -249,8 +261,14 @@ class SyncBatchProcessor
                 PersistentLogger::info("Limit reached. Truncating batch to $remaining items.", null, $sync_id, $profile_id);
             }
 
+            // DEBUG: Before WooCommerceSync call
+            PersistentLogger::info("[DEBUG] Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products", null, $sync_id, $profile_id);
+
             // Process products with profile configuration
             $batch_result = $this->woo_sync->process_ewheel_products_batch($products, $profile_config);
+
+            // DEBUG: After WooCommerceSync call
+            PersistentLogger::info("[DEBUG] WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}", null, $sync_id, $profile_id);
 
             // Update progress with detailed counts
             $this->update_progress($sync_id, $page, count($products), $batch_result, $profile_id);

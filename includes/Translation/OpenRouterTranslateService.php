@@ -70,7 +70,7 @@ class OpenRouterTranslateService implements TranslationServiceInterface
             return $text;
         }
 
-        $system_prompt = "You are a professional translator. Translate the following e-commerce product text from {$source_lang} to {$target_lang}. Return ONLY the translation, no extra text, no quotes.";
+        $system_prompt = $this->build_translation_prompt($source_lang, $target_lang);
 
         $body = [
             'model' => $this->model,
@@ -124,5 +124,36 @@ class OpenRouterTranslateService implements TranslationServiceInterface
             $translated[] = $this->translate($text, $source_lang, $target_lang);
         }
         return $translated;
+    }
+
+    /**
+     * Build translation prompt with language-specific grammar rules.
+     *
+     * @param string $source_lang Source language code.
+     * @param string $target_lang Target language code.
+     * @return string The system prompt.
+     */
+    private function build_translation_prompt(string $source_lang, string $target_lang): string
+    {
+        $base_prompt = "You are a professional translator specializing in e-commerce product content.";
+
+        // Romanian-specific grammar rules
+        if ($target_lang === 'ro') {
+            return $base_prompt . " Translate from {$source_lang} to Romanian following these rules:
+
+ROMANIAN GRAMMAR RULES:
+- Use proper Romanian diacritics: ă, â, î, ș, ț (never substitute with a, i, s, t)
+- Apply correct noun-adjective agreement (adjectives follow nouns, agree in gender/number/case)
+- Use Romanian definite articles as suffixes (-ul, -a, -le, -lui, -lor)
+- Use formal register appropriate for e-commerce
+- Preserve technical product terms commonly used untranslated in Romanian (e.g., brand names, model numbers)
+- For measurements, use Romanian conventions (km/h, kg, cm)
+- Translate product categories naturally (e.g., 'Electric Scooters' → 'Trotinete Electrice')
+
+Return ONLY the translation, no explanations, no quotes.";
+        }
+
+        // Default prompt for other languages
+        return "{$base_prompt} Translate the following e-commerce product text from {$source_lang} to {$target_lang}. Return ONLY the translation, no extra text, no quotes.";
     }
 }
