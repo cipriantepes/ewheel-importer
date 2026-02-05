@@ -262,7 +262,7 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                             <td>
                                 <input type="text" id="ewheel_importer_openrouter_model"
                                     name="ewheel_importer_openrouter_model"
-                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash-exp:free'); ?>"
+                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free'); ?>"
                                     class="regular-text" />
                             </td>
                         </tr>

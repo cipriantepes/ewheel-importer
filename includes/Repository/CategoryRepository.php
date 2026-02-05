@@ -213,8 +213,8 @@ class CategoryRepository implements RepositoryInterface {
         $auto_mappings = $this->get_mapping();
         $manual_mappings = get_option( 'ewheel_importer_category_mappings', [] );
 
-        // Manual mappings take precedence
-        return array_merge( $auto_mappings, $manual_mappings );
+        // Manual mappings take precedence (use + to preserve numeric string keys)
+        return $manual_mappings + $auto_mappings;
     }
 
     /**
