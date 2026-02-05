@@ -649,9 +649,12 @@ class ProductTransformer
                 continue;
             }
 
-            // Translate attribute name and value
+            // Translate attribute name
             $translated_name = $this->translate_attribute_name((string) $attr_name);
-            $translated_val = $this->translate_attribute_value($final_val);
+
+            // Skip translation for brand names (marca, brand) - keep original value
+            $is_brand = in_array(strtolower($attr_name), ['marca', 'brand'], true);
+            $translated_val = $is_brand ? $final_val : $this->translate_attribute_value($final_val);
 
             $woo_attributes[] = [
                 'name' => $translated_name,
