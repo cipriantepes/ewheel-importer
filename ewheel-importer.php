@@ -877,10 +877,29 @@ final class Ewheel_Importer
                 $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
                 $parent = $cat['parentReference'] ?? ($cat['ParentReference'] ?? null);
 
+                // Extract source text from multilingual structure
+                // Handles both: {"translations": [{"reference": "es", "value": "..."}]} and {"es": "text"}
                 $source_text = '';
                 $source_lang = 'es';
                 if (is_array($raw_name)) {
-                    if (!empty($raw_name['es'])) {
+                    // Complex format: {"translations": [...]}
+                    if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
+                        foreach (['es', 'en'] as $preferred_lang) {
+                            foreach ($raw_name['translations'] as $t) {
+                                if (isset($t['reference']) && $t['reference'] === $preferred_lang && !empty($t['value'])) {
+                                    $source_text = $t['value'];
+                                    $source_lang = $preferred_lang;
+                                    break 2;
+                                }
+                            }
+                        }
+                        // Fallback to first available
+                        if (empty($source_text) && !empty($raw_name['translations'][0]['value'])) {
+                            $source_text = $raw_name['translations'][0]['value'];
+                            $source_lang = $raw_name['translations'][0]['reference'] ?? 'es';
+                        }
+                    // Simple format: {"es": "text", "en": "text"}
+                    } elseif (!empty($raw_name['es'])) {
                         $source_text = $raw_name['es'];
                         $source_lang = 'es';
                     } elseif (!empty($raw_name['en'])) {
@@ -1049,10 +1068,29 @@ final class Ewheel_Importer
                     $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
                     $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
 
+                    // Extract source text from multilingual structure
+                    // Handles both: {"translations": [{"reference": "es", "value": "..."}]} and {"es": "text"}
                     $source_text = '';
                     $source_lang = 'es';
                     if (is_array($raw_name)) {
-                        if (!empty($raw_name['es'])) {
+                        // Complex format: {"translations": [...]}
+                        if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
+                            foreach (['es', 'en'] as $preferred_lang) {
+                                foreach ($raw_name['translations'] as $t) {
+                                    if (isset($t['reference']) && $t['reference'] === $preferred_lang && !empty($t['value'])) {
+                                        $source_text = $t['value'];
+                                        $source_lang = $preferred_lang;
+                                        break 2;
+                                    }
+                                }
+                            }
+                            // Fallback to first available
+                            if (empty($source_text) && !empty($raw_name['translations'][0]['value'])) {
+                                $source_text = $raw_name['translations'][0]['value'];
+                                $source_lang = $raw_name['translations'][0]['reference'] ?? 'es';
+                            }
+                        // Simple format: {"es": "text", "en": "text"}
+                        } elseif (!empty($raw_name['es'])) {
                             $source_text = $raw_name['es'];
                             $source_lang = 'es';
                         } elseif (!empty($raw_name['en'])) {
