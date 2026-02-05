@@ -24,6 +24,7 @@ class SyncHistoryManager
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_FAILED = 'failed';
     public const STATUS_STOPPED = 'stopped';
+    public const STATUS_PAUSED = 'paused';
 
     /**
      * Type constants.
@@ -232,6 +233,70 @@ class SyncHistoryManager
             'completed_at' => current_time('mysql'),
             'duration_seconds' => $duration,
         ]);
+    }
+
+    /**
+     * Mark sync as paused by user.
+     *
+     * @param string $sync_id Sync ID.
+     * @return bool
+     */
+    public static function pause(string $sync_id): bool
+    {
+        return self::update($sync_id, [
+            'status' => self::STATUS_PAUSED,
+        ]);
+    }
+
+    /**
+     * Resume a paused sync (set back to running).
+     *
+     * @param string $sync_id Sync ID.
+     * @return bool
+     */
+    public static function resume(string $sync_id): bool
+    {
+        return self::update($sync_id, [
+            'status' => self::STATUS_RUNNING,
+        ]);
+    }
+
+    /**
+     * Get a paused sync for a profile.
+     *
+     * @param int|null $profile_id Profile ID.
+     * @return array|null
+     */
+    public static function get_paused_sync(?int $profile_id = null): ?array
+    {
+        global $wpdb;
+
+        $table_name = $wpdb->prefix . SchemaInstaller::SYNC_HISTORY_TABLE;
+
+        if (!self::table_exists()) {
+            return null;
+        }
+
+        if ($profile_id !== null) {
+            $result = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM $table_name WHERE status = %s AND profile_id = %d ORDER BY started_at DESC LIMIT 1",
+                    self::STATUS_PAUSED,
+                    $profile_id
+                ),
+                ARRAY_A
+            );
+        } else {
+            $result = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM $table_name WHERE status = %s ORDER BY started_at DESC LIMIT 1",
+                    self::STATUS_PAUSED
+                ),
+                ARRAY_A
+            );
+        }
+
+        return $result ?: null;
     }
 
     /**

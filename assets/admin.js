@@ -7,33 +7,130 @@
 
     var EwheelImporter = {
         pollInterval: null,
+        currentProfileId: null,
 
         init: function () {
             this.bindEvents();
+            this.checkInitialStatus();
         },
 
         bindEvents: function () {
+            // Settings tab sync controls
             $('#ewheel-run-sync').on('click', this.runSync.bind(this));
-            $('#ewheel-stop-sync').on('click', this.stopSync.bind(this));
+            $('#ewheel-pause-sync').on('click', this.pauseSync.bind(this));
+            $('#ewheel-resume-sync').on('click', this.resumeSync.bind(this));
+            $('#ewheel-cancel-sync').on('click', this.cancelSync.bind(this));
             $('#ewheel-test-connection').on('click', this.testConnection.bind(this));
+
+            // Profile tab sync controls
+            $('#ewheel-run-profile-sync').on('click', this.runProfileSync.bind(this));
+            $('#ewheel-pause-profile-sync').on('click', this.pauseProfileSync.bind(this));
+            $('#ewheel-resume-profile-sync').on('click', this.resumeProfileSync.bind(this));
+            $('#ewheel-cancel-profile-sync').on('click', this.cancelProfileSync.bind(this));
+        },
+
+        checkInitialStatus: function () {
+            var self = this;
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_sync_status',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success && response.data && response.data.status) {
+                        var status = response.data.status;
+                        if (status === 'running' || status === 'pausing') {
+                            self.updateSyncUI('running', response.data);
+                            self.startPolling();
+                        } else if (status === 'paused') {
+                            self.updateSyncUI('paused', response.data);
+                        }
+                    }
+                }
+            });
+        },
+
+        updateSyncUI: function (state, data) {
+            var $runBtn = $('#ewheel-run-sync');
+            var $pauseBtn = $('#ewheel-pause-sync');
+            var $resumeBtn = $('#ewheel-resume-sync');
+            var $cancelBtn = $('#ewheel-cancel-sync');
+            var $status = $('#ewheel-sync-status');
+
+            // Reset all buttons first
+            $runBtn.hide().prop('disabled', false);
+            $pauseBtn.hide().prop('disabled', false).text('Pause');
+            $resumeBtn.hide().prop('disabled', false);
+            $cancelBtn.hide().prop('disabled', false);
+
+            switch (state) {
+                case 'idle':
+                    $runBtn.show();
+                    $status.removeClass('syncing success error').text('');
+                    break;
+
+                case 'running':
+                    $pauseBtn.show();
+                    $cancelBtn.show();
+                    var msg = 'Processing...';
+                    if (data) {
+                        msg = 'Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0);
+                        if (data.created) msg += ' | Created: ' + data.created;
+                        if (data.updated) msg += ' | Updated: ' + data.updated;
+                    }
+                    $status.removeClass('success error').addClass('syncing').text(msg);
+                    break;
+
+                case 'pausing':
+                    $pauseBtn.show().prop('disabled', true).text('Pausing...');
+                    $cancelBtn.show();
+                    $status.text('Finishing current batch before pausing...');
+                    break;
+
+                case 'paused':
+                    $resumeBtn.show();
+                    $cancelBtn.show();
+                    var pauseMsg = 'Paused';
+                    if (data) {
+                        pauseMsg = 'Paused at page ' + (data.page || 0) + ' (' + (data.processed || 0) + ' products processed)';
+                    }
+                    $status.removeClass('syncing').text(pauseMsg);
+                    break;
+
+                case 'stopping':
+                    $cancelBtn.show().prop('disabled', true).text('Cancelling...');
+                    $status.text('Finishing current batch before cancelling...');
+                    break;
+
+                case 'completed':
+                    $runBtn.show();
+                    var completeMsg = 'Sync completed!';
+                    if (data) {
+                        completeMsg += ' Processed: ' + (data.processed || 0);
+                    }
+                    $status.removeClass('syncing error').addClass('success').text(completeMsg);
+                    break;
+
+                case 'stopped':
+                    $runBtn.show();
+                    $status.removeClass('syncing success').text('Sync cancelled.');
+                    break;
+
+                case 'failed':
+                    $runBtn.show();
+                    $status.removeClass('syncing success').addClass('error').text('Sync failed.');
+                    break;
+            }
         },
 
         runSync: function (e) {
             e.preventDefault();
-
-            var $runButton = $('#ewheel-run-sync');
-            var $stopButton = $('#ewheel-stop-sync');
-            var $status = $('#ewheel-sync-status');
-            var limit = $('#ewheel-sync-limit').val() || 0;
             var self = this;
+            var limit = $('#ewheel-sync-limit').val() || 0;
 
-            $runButton.prop('disabled', true);
-            $stopButton.show();
-
-            $status
-                .removeClass('success error')
-                .addClass('syncing')
-                .text(ewheelImporter.strings.syncing);
+            this.updateSyncUI('running', null);
 
             $.ajax({
                 url: ewheelImporter.ajaxUrl,
@@ -45,35 +142,80 @@
                 },
                 success: function (response) {
                     if (response.success) {
-                        $status.text('Sync started... Waiting for updates.');
-                        self.startPolling($status, $runButton, $stopButton);
+                        self.startPolling();
                     } else {
-                        $runButton.prop('disabled', false);
-                        $stopButton.hide();
-                        $status
+                        self.updateSyncUI('idle', null);
+                        $('#ewheel-sync-status')
                             .removeClass('syncing success')
                             .addClass('error')
-                            .text(ewheelImporter.strings.error + ' ' + response.data.message);
+                            .text('Error: ' + response.data.message);
                     }
                 },
                 error: function (xhr, status, error) {
-                    $runButton.prop('disabled', false);
-                    $stopButton.hide();
-                    $status
+                    self.updateSyncUI('idle', null);
+                    $('#ewheel-sync-status')
                         .removeClass('syncing success')
                         .addClass('error')
-                        .text(ewheelImporter.strings.error + ' ' + error);
+                        .text('Error: ' + error);
                 }
             });
         },
 
-        stopSync: function (e) {
+        pauseSync: function (e) {
             e.preventDefault();
-            var $stopButton = $('#ewheel-stop-sync');
-            var $status = $('#ewheel-sync-status');
+            var self = this;
 
-            $stopButton.prop('disabled', true).text('Stopping...');
-            $status.text('Requesting stop...');
+            this.updateSyncUI('pausing', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_pause_sync',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (!response.success) {
+                        $('#ewheel-sync-status').text('Error pausing: ' + response.data.message);
+                    }
+                    // Polling will update UI when batch finishes
+                }
+            });
+        },
+
+        resumeSync: function (e) {
+            e.preventDefault();
+            var self = this;
+
+            this.updateSyncUI('running', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_resume_sync',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        self.startPolling();
+                    } else {
+                        self.updateSyncUI('paused', null);
+                        $('#ewheel-sync-status').text('Error resuming: ' + response.data.message);
+                    }
+                },
+                error: function (xhr, status, error) {
+                    self.updateSyncUI('paused', null);
+                    $('#ewheel-sync-status').text('Error resuming: ' + error);
+                }
+            });
+        },
+
+        cancelSync: function (e) {
+            e.preventDefault();
+            var self = this;
+
+            this.updateSyncUI('stopping', null);
 
             $.ajax({
                 url: ewheelImporter.ajaxUrl,
@@ -83,17 +225,22 @@
                     nonce: ewheelImporter.nonce
                 },
                 success: function (response) {
-                    if (response.success) {
-                        $status.text(response.data.message);
-                    } else {
-                        $status.text('Error stopping: ' + response.data.message);
+                    if (!response.success) {
+                        $('#ewheel-sync-status').text('Error cancelling: ' + response.data.message);
                     }
+                    // Polling will update UI when batch finishes
                 }
             });
         },
 
-        startPolling: function ($status, $runButton, $stopButton) {
+        startPolling: function () {
             var self = this;
+
+            // Clear any existing interval
+            if (this.pollInterval) {
+                clearInterval(this.pollInterval);
+            }
+
             this.pollInterval = setInterval(function () {
                 $.ajax({
                     url: ewheelImporter.ajaxUrl,
@@ -105,42 +252,27 @@
                     success: function (response) {
                         if (response.success) {
                             var data = response.data;
+                            var status = data.status;
 
-                            if (data.status === 'completed') {
+                            self.updateSyncUI(status, data);
+
+                            // Stop polling on terminal states
+                            if (status === 'completed' || status === 'failed' || status === 'stopped' || status === 'paused') {
                                 clearInterval(self.pollInterval);
-                                $runButton.prop('disabled', false);
-                                $stopButton.hide();
-                                $status
-                                    .removeClass('syncing error')
-                                    .addClass('success')
-                                    .text(ewheelImporter.strings.success + ' Processed: ' + data.processed);
+                                self.pollInterval = null;
 
-                                setTimeout(function () {
-                                    location.reload();
-                                }, 2000);
-
-                            } else if (data.status === 'failed') {
-                                clearInterval(self.pollInterval);
-                                $runButton.prop('disabled', false);
-                                $stopButton.hide();
-                                $status
-                                    .removeClass('syncing success')
-                                    .addClass('error')
-                                    .text('Sync Failed.');
-
-                            } else if (data.status === 'stopping') {
-                                $status.text('Finishing current batch before stopping...');
-
-                            } else {
-                                // Still running
-                                var msg = 'Processing... Page: ' + data.page + ' | Products: ' + data.processed;
-                                $status.text(msg);
+                                // Reload page on completion after a delay
+                                if (status === 'completed') {
+                                    setTimeout(function () {
+                                        location.reload();
+                                    }, 2000);
+                                }
                             }
                         }
                     }
                 });
-                self.fetchLogs(); // Poll logs while syncing
-            }, 3000); // Poll every 3 seconds
+                self.fetchLogs();
+            }, 3000);
         },
 
         fetchLogs: function () {
@@ -166,6 +298,188 @@
                     }
                 }
             });
+        },
+
+        // Profile-specific sync methods
+        runProfileSync: function (e) {
+            e.preventDefault();
+            var self = this;
+            var profileId = this.currentProfileId;
+
+            if (!profileId) {
+                alert('Please select a profile first.');
+                return;
+            }
+
+            this.updateProfileSyncUI('running', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_run_sync',
+                    nonce: ewheelImporter.nonce,
+                    profile_id: profileId,
+                    limit: 0
+                },
+                success: function (response) {
+                    if (response.success) {
+                        self.startProfilePolling(profileId);
+                    } else {
+                        self.updateProfileSyncUI('idle', null);
+                        alert('Error: ' + response.data.message);
+                    }
+                }
+            });
+        },
+
+        pauseProfileSync: function (e) {
+            e.preventDefault();
+            var profileId = this.currentProfileId;
+
+            this.updateProfileSyncUI('pausing', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_pause_sync',
+                    nonce: ewheelImporter.nonce,
+                    profile_id: profileId
+                }
+            });
+        },
+
+        resumeProfileSync: function (e) {
+            e.preventDefault();
+            var self = this;
+            var profileId = this.currentProfileId;
+
+            this.updateProfileSyncUI('running', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_resume_sync',
+                    nonce: ewheelImporter.nonce,
+                    profile_id: profileId
+                },
+                success: function (response) {
+                    if (response.success) {
+                        self.startProfilePolling(profileId);
+                    } else {
+                        self.updateProfileSyncUI('paused', null);
+                        alert('Error resuming: ' + response.data.message);
+                    }
+                }
+            });
+        },
+
+        cancelProfileSync: function (e) {
+            e.preventDefault();
+            var profileId = this.currentProfileId;
+
+            this.updateProfileSyncUI('stopping', null);
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_stop_sync',
+                    nonce: ewheelImporter.nonce,
+                    profile_id: profileId
+                }
+            });
+        },
+
+        updateProfileSyncUI: function (state, data) {
+            var $runBtn = $('#ewheel-run-profile-sync');
+            var $pauseBtn = $('#ewheel-pause-profile-sync');
+            var $resumeBtn = $('#ewheel-resume-profile-sync');
+            var $cancelBtn = $('#ewheel-cancel-profile-sync');
+            var $progress = $('#ewheel-profile-sync-progress');
+            var $details = $('#ewheel-profile-sync-details');
+
+            // Reset all buttons
+            $runBtn.hide().prop('disabled', false);
+            $pauseBtn.hide().prop('disabled', false).text('Pause');
+            $resumeBtn.hide().prop('disabled', false);
+            $cancelBtn.hide().prop('disabled', false).text('Cancel');
+
+            switch (state) {
+                case 'idle':
+                    $runBtn.show();
+                    $progress.hide();
+                    break;
+
+                case 'running':
+                    $pauseBtn.show();
+                    $cancelBtn.show();
+                    $progress.show();
+                    if (data) {
+                        $details.text('Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0));
+                    }
+                    break;
+
+                case 'pausing':
+                    $pauseBtn.show().prop('disabled', true).text('Pausing...');
+                    $cancelBtn.show();
+                    $details.text('Finishing current batch...');
+                    break;
+
+                case 'paused':
+                    $resumeBtn.show();
+                    $cancelBtn.show();
+                    $progress.show();
+                    if (data) {
+                        $details.text('Paused at page ' + (data.page || 0) + ' (' + (data.processed || 0) + ' products)');
+                    }
+                    break;
+
+                case 'stopping':
+                    $cancelBtn.show().prop('disabled', true).text('Cancelling...');
+                    $details.text('Finishing current batch...');
+                    break;
+
+                case 'completed':
+                case 'stopped':
+                case 'failed':
+                    $runBtn.show();
+                    $progress.hide();
+                    break;
+            }
+        },
+
+        startProfilePolling: function (profileId) {
+            var self = this;
+
+            if (this.profilePollInterval) {
+                clearInterval(this.profilePollInterval);
+            }
+
+            this.profilePollInterval = setInterval(function () {
+                $.ajax({
+                    url: ewheelImporter.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'ewheel_get_sync_status',
+                        nonce: ewheelImporter.nonce,
+                        profile_id: profileId
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            var data = response.data;
+                            self.updateProfileSyncUI(data.status, data);
+
+                            if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped' || data.status === 'paused') {
+                                clearInterval(self.profilePollInterval);
+                                self.profilePollInterval = null;
+                            }
+                        }
+                    }
+                });
+            }, 3000);
         },
 
         testConnection: function (e) {
@@ -216,6 +530,9 @@
     $(document).ready(function () {
         EwheelImporter.init();
 
-        // Log polling
+        // Store reference to currentProfileId when profile is selected
+        $(document).on('click', '.ewheel-profile-item', function () {
+            EwheelImporter.currentProfileId = $(this).data('id');
+        });
     });
 })(jQuery);

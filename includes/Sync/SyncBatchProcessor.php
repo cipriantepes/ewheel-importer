@@ -167,6 +167,13 @@ class SyncBatchProcessor
                 return;
             }
 
+            // Check if sync should pause
+            if (get_option('ewheel_importer_pause_sync_' . $sync_id)) {
+                PersistentLogger::info('Sync paused by user request', null, $sync_id, $profile_id);
+                $this->pause_sync($sync_id, $profile_id);
+                return;
+            }
+
             // On first batch, sync categories automatically to ensure mapping exists
             if ($page === 0) {
                 PersistentLogger::info('Syncing categories before products...', null, $sync_id, $profile_id);
@@ -358,6 +365,34 @@ class SyncBatchProcessor
 
             // Release lock
             delete_transient($this->get_lock_key($profile_id));
+        }
+    }
+
+    /**
+     * Mark sync as paused by user.
+     *
+     * Does NOT release the lock - sync can be resumed.
+     *
+     * @param string   $sync_id    Unique sync ID.
+     * @param int|null $profile_id Profile ID.
+     */
+    private function pause_sync(string $sync_id, ?int $profile_id = null): void
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        if (isset($status['id']) && $status['id'] === $sync_id) {
+            $status['status'] = 'paused';
+            $status['paused_at'] = time();
+            update_option($this->get_status_key($profile_id), $status);
+
+            // Mark history as paused
+            SyncHistoryManager::pause($sync_id);
+
+            // Clean up pause flag
+            delete_option('ewheel_importer_pause_sync_' . $sync_id);
+
+            // Note: We do NOT release the lock - sync can be resumed
+            // But we should extend the lock timeout
+            set_transient($this->get_lock_key($profile_id), $sync_id, 3600 * 24); // 24 hours for paused sync
         }
     }
 

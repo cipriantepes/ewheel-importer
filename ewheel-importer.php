@@ -38,6 +38,7 @@ require_once EWHEEL_IMPORTER_PATH . 'vendor/autoload.php';
 use Trotibike\EwheelImporter\Factory\ServiceFactory;
 use Trotibike\EwheelImporter\Config\Configuration;
 use Trotibike\EwheelImporter\Container\ServiceContainer;
+use Trotibike\EwheelImporter\Sync\SyncLauncher;
 use Trotibike\EwheelImporter\Admin\AdminPage;
 use Trotibike\EwheelImporter\Model\Profile;
 use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
@@ -188,6 +189,8 @@ final class Ewheel_Importer
         add_action('wp_ajax_ewheel_run_sync', [$this, 'ajax_run_sync']);
         add_action('wp_ajax_ewheel_get_sync_status', [$this, 'ajax_get_sync_status']);
         add_action('wp_ajax_ewheel_stop_sync', [$this, 'ajax_stop_sync']);
+        add_action('wp_ajax_ewheel_pause_sync', [$this, 'ajax_pause_sync']);
+        add_action('wp_ajax_ewheel_resume_sync', [$this, 'ajax_resume_sync']);
         add_action('wp_ajax_ewheel_test_connection', [$this, 'ajax_test_connection']);
         add_action('wp_ajax_ewheel_get_logs', [$this, 'ajax_get_logs']);
         add_action('wp_ajax_ewheel_get_sync_history', [$this, 'ajax_get_sync_history']);
@@ -464,6 +467,77 @@ final class Ewheel_Importer
             wp_send_json_success(['message' => __('Sync stopping...', 'ewheel-importer')]);
         } else {
             wp_send_json_error(['message' => __('No running sync found.', 'ewheel-importer')]);
+        }
+    }
+
+    /**
+     * AJAX: Pause sync.
+     *
+     * @return void
+     */
+    public function ajax_pause_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field(wp_unslash($_POST['sync_id'])) : '';
+        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
+
+        // Determine status key based on profile
+        $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
+
+        if (empty($sync_id)) {
+            // Try to get running sync from status
+            $status = get_option($status_key, []);
+            if (!empty($status['id']) && $status['status'] === 'running') {
+                $sync_id = $status['id'];
+            }
+        }
+
+        if (!empty($sync_id)) {
+            update_option('ewheel_importer_pause_sync_' . $sync_id, true);
+
+            // Update status immediately to reflect pausing
+            $status = get_option($status_key, []);
+            if (isset($status['id']) && $status['id'] === $sync_id) {
+                $status['status'] = 'pausing';
+                update_option($status_key, $status);
+            }
+
+            wp_send_json_success(['message' => __('Sync pausing...', 'ewheel-importer')]);
+        } else {
+            wp_send_json_error(['message' => __('No running sync found.', 'ewheel-importer')]);
+        }
+    }
+
+    /**
+     * AJAX: Resume sync.
+     *
+     * @return void
+     */
+    public function ajax_resume_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
+
+        try {
+            $sync_launcher = $this->container->get(SyncLauncher::class);
+            $sync_id = $sync_launcher->resume_sync($profile_id);
+
+            wp_send_json_success([
+                'message' => __('Sync resumed!', 'ewheel-importer'),
+                'sync_id' => $sync_id,
+            ]);
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
         }
     }
 

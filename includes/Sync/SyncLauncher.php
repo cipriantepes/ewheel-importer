@@ -91,6 +91,11 @@ class SyncLauncher
         // Check transient lock
         $lock = get_transient($this->get_lock_key($profile_id));
         if ($lock) {
+            // Check if the locked sync is actually paused (not running)
+            $status = get_option($this->get_status_key($profile_id), []);
+            if (!empty($status['status']) && $status['status'] === 'paused') {
+                return false; // Paused sync doesn't block new sync or resume
+            }
             return true;
         }
 
@@ -106,6 +111,33 @@ class SyncLauncher
 
         // Also check database history
         return SyncHistoryManager::has_running_sync($profile_id);
+    }
+
+    /**
+     * Check if a sync is currently paused.
+     *
+     * @param int|null $profile_id Profile ID (null for default/global).
+     * @return bool
+     */
+    public function is_sync_paused(?int $profile_id = null): bool
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        return !empty($status['status']) && $status['status'] === 'paused';
+    }
+
+    /**
+     * Get the paused sync status.
+     *
+     * @param int|null $profile_id Profile ID.
+     * @return array|null Sync status array or null if not paused.
+     */
+    public function get_paused_sync(?int $profile_id = null): ?array
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        if (!empty($status['status']) && $status['status'] === 'paused') {
+            return $status;
+        }
+        return null;
     }
 
     /**
@@ -308,6 +340,73 @@ class SyncLauncher
                 'page' => 0,
                 'sync_id' => $sync_id,
                 'since' => $since ?: '',
+                'profile_id' => $profile_id,
+            ]
+        );
+
+        return $sync_id;
+    }
+
+    /**
+     * Resume a paused sync.
+     *
+     * @param int|null $profile_id Profile ID.
+     * @return string Sync ID.
+     * @throws \Exception If no paused sync exists or resume fails.
+     */
+    public function resume_sync(?int $profile_id = null): string
+    {
+        $paused_status = $this->get_paused_sync($profile_id);
+
+        if (!$paused_status) {
+            throw new \Exception(
+                __('No paused sync found to resume.', 'ewheel-importer')
+            );
+        }
+
+        $sync_id = $paused_status['id'];
+        $next_page = ($paused_status['page'] ?? 0) + 1; // Resume from next page
+        $since = $paused_status['since'] ?? '';
+
+        // Clear any lingering pause flag
+        delete_option('ewheel_importer_pause_sync_' . $sync_id);
+
+        // Update status back to running
+        $paused_status['status'] = 'running';
+        $paused_status['last_update'] = time();
+        $paused_status['resumed_at'] = time();
+        unset($paused_status['paused_at']);
+        update_option($this->get_status_key($profile_id), $paused_status);
+
+        // Update history to running
+        SyncHistoryManager::resume($sync_id);
+
+        // Refresh the lock
+        set_transient($this->get_lock_key($profile_id), $sync_id, self::LOCK_TIMEOUT);
+
+        // Log resume
+        $profile_name = 'Default';
+        if ($profile_id) {
+            $profile = $this->profile_repository->find($profile_id);
+            if ($profile) {
+                $profile_name = $profile->get_name();
+            }
+        }
+        PersistentLogger::info(
+            sprintf('Sync resumed at page %d (Profile: %s)', $next_page, $profile_name),
+            null,
+            $sync_id,
+            $profile_id
+        );
+
+        // Schedule next batch immediately
+        as_schedule_single_action(
+            time(),
+            'ewheel_importer_process_batch',
+            [
+                'page' => $next_page,
+                'sync_id' => $sync_id,
+                'since' => $since,
                 'profile_id' => $profile_id,
             ]
         );

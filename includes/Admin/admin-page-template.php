@@ -20,7 +20,8 @@ $recent_history = \Trotibike\EwheelImporter\Sync\SyncHistoryManager::get_recent(
 
 // Get current sync status
 $current_status = get_option('ewheel_importer_sync_status', []);
-$is_running = !empty($current_status['status']) && $current_status['status'] === 'running';
+$is_running = !empty($current_status['status']) && in_array($current_status['status'], ['running', 'pausing'], true);
+$is_paused = !empty($current_status['status']) && $current_status['status'] === 'paused';
 ?>
 <div class="wrap ewheel-importer-admin">
     <h1><?php esc_html_e('Ewheel Product Importer', 'ewheel-importer'); ?></h1>
@@ -411,13 +412,27 @@ $is_running = !empty($current_status['status']) && $current_status['status'] ===
                             <?php esc_html_e('(0 for all)', 'ewheel-importer'); ?>
                         </span>
                     </p>
-                    <p>
-                        <button type="button" id="ewheel-run-sync" class="button button-primary" <?php echo $is_running ? 'disabled' : ''; ?>>
-                            <?php esc_html_e('Run Sync Now', 'ewheel-importer'); ?>
+                    <p id="ewheel-sync-controls">
+                        <!-- Run button: shown when idle -->
+                        <button type="button" id="ewheel-run-sync" class="button button-primary" style="<?php echo ($is_running || $is_paused) ? 'display:none;' : ''; ?>">
+                            <?php esc_html_e('Run Sync', 'ewheel-importer'); ?>
                         </button>
-                        <button type="button" id="ewheel-stop-sync" class="button button-secondary" style="<?php echo $is_running ? '' : 'display:none;'; ?>">
-                            <?php esc_html_e('Stop Sync', 'ewheel-importer'); ?>
+
+                        <!-- Pause button: shown when running -->
+                        <button type="button" id="ewheel-pause-sync" class="button button-secondary" style="<?php echo $is_running ? '' : 'display:none;'; ?>">
+                            <?php esc_html_e('Pause', 'ewheel-importer'); ?>
                         </button>
+
+                        <!-- Resume button: shown when paused -->
+                        <button type="button" id="ewheel-resume-sync" class="button button-primary" style="<?php echo $is_paused ? '' : 'display:none;'; ?>">
+                            <?php esc_html_e('Resume', 'ewheel-importer'); ?>
+                        </button>
+
+                        <!-- Cancel button: shown when running or paused -->
+                        <button type="button" id="ewheel-cancel-sync" class="button button-link-delete" style="<?php echo ($is_running || $is_paused) ? '' : 'display:none;'; ?>">
+                            <?php esc_html_e('Cancel', 'ewheel-importer'); ?>
+                        </button>
+
                         <span id="ewheel-sync-status"></span>
                     </p>
 
@@ -667,12 +682,25 @@ $is_running = !empty($current_status['status']) && $current_status['status'] ===
                             <p id="ewheel-profile-sync-details"></p>
                         </div>
 
-                        <p>
+                        <p id="ewheel-profile-sync-buttons">
+                            <!-- Run button: shown when idle -->
                             <button type="button" id="ewheel-run-profile-sync" class="button button-primary">
-                                <?php esc_html_e('Run Sync Now', 'ewheel-importer'); ?>
+                                <?php esc_html_e('Run Sync', 'ewheel-importer'); ?>
                             </button>
-                            <button type="button" id="ewheel-stop-profile-sync" class="button button-secondary" style="display: none;">
-                                <?php esc_html_e('Stop Sync', 'ewheel-importer'); ?>
+
+                            <!-- Pause button: shown when running -->
+                            <button type="button" id="ewheel-pause-profile-sync" class="button button-secondary" style="display: none;">
+                                <?php esc_html_e('Pause', 'ewheel-importer'); ?>
+                            </button>
+
+                            <!-- Resume button: shown when paused -->
+                            <button type="button" id="ewheel-resume-profile-sync" class="button button-primary" style="display: none;">
+                                <?php esc_html_e('Resume', 'ewheel-importer'); ?>
+                            </button>
+
+                            <!-- Cancel button: shown when running or paused -->
+                            <button type="button" id="ewheel-cancel-profile-sync" class="button button-link-delete" style="display: none;">
+                                <?php esc_html_e('Cancel', 'ewheel-importer'); ?>
                             </button>
                         </p>
                         <p id="ewheel-profile-last-sync"></p>
