@@ -261,7 +261,7 @@ $is_running = !empty($current_status['status']) && $current_status['status'] ===
                             <td>
                                 <input type="text" id="ewheel_importer_openrouter_model"
                                     name="ewheel_importer_openrouter_model"
-                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-flash-1.5'); ?>"
+                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash-exp:free'); ?>"
                                     class="regular-text" />
                             </td>
                         </tr>

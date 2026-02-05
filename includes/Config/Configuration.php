@@ -67,7 +67,7 @@ class Configuration
             'description' => '',
             'short_description' => '',
         ],
-        'openrouter_model' => 'google/gemini-flash-1.5',
+        'openrouter_model' => 'google/gemini-2.0-flash-exp:free',
         'variation_mode' => self::VARIATION_MODE_VARIABLE, // 'variable' or 'simple'
     ];
 
