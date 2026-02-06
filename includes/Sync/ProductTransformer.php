@@ -548,6 +548,10 @@ class ProductTransformer
     public function translate_text($text): string
     {
         if (is_string($text)) {
+            // String inputs should be translated from Spanish
+            if (!empty($text)) {
+                return $this->translator->translate($text, 'es');
+            }
             return $text;
         }
 
@@ -1620,8 +1624,15 @@ class ProductTransformer
             PersistentLogger::info("[Performance] Prefetching translations for $count strings...");
 
             // Process in chunks of 50 to respect API limits if necessary
-            foreach (array_chunk($unique_texts, 50) as $chunk) {
+            $chunks = array_chunk($unique_texts, 50);
+            $chunk_count = count($chunks);
+            foreach ($chunks as $index => $chunk) {
                 $this->translator->translate_batch($chunk, 'es');
+
+                // Add 1 second delay between chunks to prevent API rate limiting
+                if ($index < $chunk_count - 1) {
+                    sleep(1);
+                }
             }
         }
     }

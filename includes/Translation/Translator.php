@@ -7,6 +7,7 @@
 
 namespace Trotibike\EwheelImporter\Translation;
 
+use Trotibike\EwheelImporter\Logging\PersistentLogger;
 use Trotibike\EwheelImporter\Repository\TranslationRepository;
 
 /**
@@ -109,6 +110,11 @@ class Translator
                 $this->target_language
             );
 
+            // Fallback: return original if translation failed or returned empty
+            if (empty($translated)) {
+                return $text;
+            }
+
             // Save to persistent cache
             $this->repository->save(
                 $text,
@@ -119,9 +125,9 @@ class Translator
             );
 
             return $translated;
-        } catch (\Exception $e) {
-            error_log('Translation error: ' . $e->getMessage());
-            return $text;
+        } catch (\Throwable $e) {
+            PersistentLogger::error("[Translation] Failed: " . $e->getMessage());
+            return $text; // Graceful degradation
         }
     }
 
