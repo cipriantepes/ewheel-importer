@@ -203,7 +203,7 @@ class SyncLauncher
     {
         $sync_id = uniqid('sync_');
 
-        // Check for concurrent sync
+        // Check for concurrent sync (quick check)
         if (!$this->acquire_lock($sync_id, $profile_id)) {
             $running_id = $this->get_running_sync_id($profile_id);
             throw new \Exception(
@@ -214,23 +214,7 @@ class SyncLauncher
             );
         }
 
-        // Clean up any old "stopped" request
-        delete_option('ewheel_importer_stop_sync_' . $sync_id);
-
-        // Create history record
-        SyncHistoryManager::create($sync_id, SyncHistoryManager::TYPE_FULL, $profile_id);
-
-        // Log start
-        $profile_name = 'Default';
-        if ($profile_id) {
-            $profile = $this->profile_repository->find($profile_id);
-            if ($profile) {
-                $profile_name = $profile->get_name();
-            }
-        }
-        PersistentLogger::info("Sync started (Profile: $profile_name)", null, $sync_id, $profile_id);
-
-        // Initialize sync status with adaptive batch size settings
+        // Initialize sync status (minimal - just enough to track state)
         update_option(
             $this->get_status_key($profile_id),
             [
@@ -246,14 +230,15 @@ class SyncLauncher
                 'limit' => $limit,
                 'type' => 'full',
                 'profile_id' => $profile_id,
-                'batch_size' => 10,      // Adaptive: starts at default
-                'failure_count' => 0,    // Adaptive: consecutive failures
-            ]
+                'batch_size' => 10,
+                'failure_count' => 0,
+            ],
+            false // Don't autoload
         );
 
-        // Schedule first batch immediately
+        // Schedule first batch with a tiny delay to let this request complete first
         as_schedule_single_action(
-            time(),
+            time() + 1,
             'ewheel_importer_process_batch',
             [
                 'page' => 0,
@@ -278,7 +263,7 @@ class SyncLauncher
     {
         $sync_id = uniqid('sync_');
 
-        // Check for concurrent sync
+        // Check for concurrent sync (quick check)
         if (!$this->acquire_lock($sync_id, $profile_id)) {
             $running_id = $this->get_running_sync_id($profile_id);
             throw new \Exception(
@@ -301,20 +286,7 @@ class SyncLauncher
             }
         }
 
-        // Create history record
-        SyncHistoryManager::create($sync_id, SyncHistoryManager::TYPE_INCREMENTAL, $profile_id);
-
-        // Log start
-        $profile_name = 'Default';
-        if ($profile_id) {
-            $profile = $this->profile_repository->find($profile_id);
-            if ($profile) {
-                $profile_name = $profile->get_name();
-            }
-        }
-        PersistentLogger::info("Incremental sync started (since: $since, Profile: $profile_name)", null, $sync_id, $profile_id);
-
-        // Initialize sync status with adaptive batch size settings
+        // Initialize sync status (minimal - history record created in first batch)
         update_option(
             $this->get_status_key($profile_id),
             [
@@ -331,14 +303,15 @@ class SyncLauncher
                 'type' => 'incremental',
                 'since' => $since,
                 'profile_id' => $profile_id,
-                'batch_size' => 10,      // Adaptive: starts at default
-                'failure_count' => 0,    // Adaptive: consecutive failures
-            ]
+                'batch_size' => 10,
+                'failure_count' => 0,
+            ],
+            false // Don't autoload
         );
 
-        // Schedule first batch immediately
+        // Schedule first batch with a tiny delay
         as_schedule_single_action(
-            time(),
+            time() + 1,
             'ewheel_importer_process_batch',
             [
                 'page' => 0,

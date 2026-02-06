@@ -10,6 +10,12 @@ namespace Trotibike\EwheelImporter\Sync;
 use Trotibike\EwheelImporter\Api\EwheelApiClient;
 use Trotibike\EwheelImporter\Config\Configuration;
 use Trotibike\EwheelImporter\Log\PersistentLogger;
+use Trotibike\EwheelImporter\Service\BrandService;
+use WC_Product;
+use WC_Product_Simple;
+use WC_Product_Variable;
+use WP_Error;
+use WP_Term;
 
 /**
  * Handles synchronization with WooCommerce.
@@ -72,6 +78,13 @@ class WooCommerceSync
     private $category_repository;
 
     /**
+     * Brand Service.
+     *
+     * @var BrandService
+     */
+    private BrandService $brand_service;
+
+    /**
      * Constructor.
      *
      * @param EwheelApiClient                                     $ewheel_client       The ewheel API client.
@@ -80,6 +93,7 @@ class WooCommerceSync
      * @param \Trotibike\EwheelImporter\Service\AttributeService  $attribute_service   Attribute service.
      * @param \Trotibike\EwheelImporter\Service\VariationService  $variation_service   Variation service.
      * @param \Trotibike\EwheelImporter\Service\ImageService      $image_service       Image service.
+     * @param BrandService                                        $brand_service       Brand service.
      * @param Configuration                                       $config              Configuration.
      */
     public function __construct(
@@ -89,6 +103,7 @@ class WooCommerceSync
         \Trotibike\EwheelImporter\Service\AttributeService $attribute_service,
         \Trotibike\EwheelImporter\Service\VariationService $variation_service,
         \Trotibike\EwheelImporter\Service\ImageService $image_service,
+        BrandService $brand_service,
         Configuration $config
     ) {
         $this->ewheel_client = $ewheel_client;
@@ -97,6 +112,7 @@ class WooCommerceSync
         $this->attribute_service = $attribute_service;
         $this->variation_service = $variation_service;
         $this->image_service = $image_service;
+        $this->brand_service = $brand_service;
         $this->config = $config;
     }
 
@@ -387,12 +403,14 @@ class WooCommerceSync
     public function process_ewheel_products_batch(array $ewheel_products, $profile_config = null): array
     {
         // DEBUG: Log batch start
+        error_log("[Ewheel WooSync] process_ewheel_products_batch called with " . count($ewheel_products) . " products");
         PersistentLogger::info("[DEBUG] process_ewheel_products_batch called with " . count($ewheel_products) . " products");
 
         // Load category map for this batch
         if ($this->category_repository) {
             $category_map = $this->category_repository->get_combined_mapping();
             $this->transformer->set_category_map($category_map);
+            error_log("[Ewheel WooSync] Category map loaded with " . count($category_map) . " categories");
         }
 
         $results = [
@@ -401,32 +419,77 @@ class WooCommerceSync
             'errors' => 0,
         ];
 
+        // --- OPTIMIZATION START ---
+        // Prefetch translations for the whole batch to avoid multiple single API calls per product
+        // Skip if EWHEEL_SKIP_TRANSLATION is defined or if previous prefetch timed out
+        $skip_prefetch = defined('EWHEEL_SKIP_TRANSLATION') && EWHEEL_SKIP_TRANSLATION;
+
+        if (!$skip_prefetch) {
+            try {
+                error_log("[Ewheel WooSync] Prefetching translations for batch...");
+                PersistentLogger::info("[Performance] Prefetching translations for batch of " . count($ewheel_products) . " items...");
+
+                // Set a flag before calling - if we crash, next run can skip
+                set_transient('ewheel_translation_in_progress', true, 120);
+
+                $this->transformer->prefetch_translations($ewheel_products);
+
+                // Clear the flag on success
+                delete_transient('ewheel_translation_in_progress');
+
+                error_log("[Ewheel WooSync] Prefetch complete");
+            } catch (\Throwable $e) {
+                delete_transient('ewheel_translation_in_progress');
+                error_log("[Ewheel WooSync] Prefetch failed: " . $e->getMessage());
+                PersistentLogger::error("[Performance] Prefetch failed (continuing anyway): " . $e->getMessage());
+            }
+        } else {
+            error_log("[Ewheel WooSync] Skipping prefetch (EWHEEL_SKIP_TRANSLATION is set)");
+        }
+        // --- OPTIMIZATION END ---
+
         // Process products ONE AT A TIME to prevent memory exhaustion
         // (Following WP All Import patterns)
+        $product_index = 0;
         foreach ($ewheel_products as $raw_product) {
+            $product_index++;
             // DEBUG: Log each product being processed
             $raw_ref = $raw_product['reference'] ?? ($raw_product['Reference'] ?? 'no-ref');
             $raw_name = $raw_product['productName']['es'] ?? ($raw_product['productName'] ?? ($raw_product['name']['es'] ?? ($raw_product['name'] ?? 'no-name')));
             if (is_array($raw_name)) {
                 $raw_name = $raw_name['es'] ?? reset($raw_name) ?: 'no-name';
             }
+            error_log("[Ewheel WooSync] Processing product {$product_index}/" . count($ewheel_products) . ": ref={$raw_ref}");
             PersistentLogger::info("[DEBUG] Processing ewheel product: reference={$raw_ref}, name=" . substr($raw_name, 0, 50));
 
             // Transform single product (may return multiple if simple mode)
-            $transformed_products = $this->transformer->transform($raw_product);
+            try {
+                $transformed_products = $this->transformer->transform($raw_product);
+                error_log("[Ewheel WooSync] Transformer returned " . count($transformed_products) . " products for ref={$raw_ref}");
+            } catch (\Throwable $e) {
+                error_log("[Ewheel WooSync] Transform failed for ref={$raw_ref}: " . $e->getMessage());
+                $results['errors']++;
+                continue;
+            }
 
             // DEBUG: Log transformation result
             PersistentLogger::info("[DEBUG] Transformer returned " . count($transformed_products) . " products for reference " . $raw_ref);
 
             // Process each transformed product
             foreach ($transformed_products as $product_data) {
-                $result = $this->sync_single_product($product_data);
+                try {
+                    $result = $this->sync_single_product($product_data);
+                    error_log("[Ewheel WooSync] sync_single_product result: {$result} for SKU=" . ($product_data['sku'] ?? 'no-sku'));
 
-                if ($result === 'created') {
-                    $results['created']++;
-                } elseif ($result === 'updated') {
-                    $results['updated']++;
-                } else {
+                    if ($result === 'created') {
+                        $results['created']++;
+                    } elseif ($result === 'updated') {
+                        $results['updated']++;
+                    } else {
+                        $results['errors']++;
+                    }
+                } catch (\Throwable $e) {
+                    error_log("[Ewheel WooSync] sync_single_product failed: " . $e->getMessage());
                     $results['errors']++;
                 }
 
@@ -441,6 +504,7 @@ class WooCommerceSync
             wp_cache_flush();
         }
 
+        error_log("[Ewheel WooSync] Batch complete: created={$results['created']}, updated={$results['updated']}, errors={$results['errors']}");
         return $results;
     }
 
@@ -596,6 +660,11 @@ class WooCommerceSync
         $this->set_product_data($product, $data);
         $product_id = $product->save();
 
+        // Assign brand taxonomy (must be done after save)
+        if (!empty($data['_brand'])) {
+            $this->brand_service->assign_brand_to_product($product_id, $data['_brand']);
+        }
+
         // Handle variations for variable products
         if ($product_type === 'variable' && !empty($data['variations'])) {
             $this->variation_service->create_variations($product_id, $data['variations'], $data['attributes'] ?? []);
@@ -621,6 +690,11 @@ class WooCommerceSync
 
         $this->set_product_data($product, $data);
         $product->save();
+
+        // Assign brand taxonomy (update on sync)
+        if (!empty($data['_brand'])) {
+            $this->brand_service->assign_brand_to_product($product_id, $data['_brand']);
+        }
 
         // Update variations for variable products
         if ($product instanceof \WC_Product_Variable && !empty($data['variations'])) {
@@ -670,6 +744,33 @@ class WooCommerceSync
 
         if (isset($data['manage_stock'])) {
             $product->set_manage_stock($data['manage_stock']);
+        }
+
+        // Set stock status (required when manage_stock is false)
+        if (isset($data['stock_status'])) {
+            $product->set_stock_status($data['stock_status']);
+        }
+
+        // Set native WooCommerce dimensions (weight, height, width, length)
+        if (!empty($data['_dimensions'])) {
+            $dims = $data['_dimensions'];
+            if (!empty($dims['weight'])) {
+                $product->set_weight($dims['weight']);
+            }
+            if (!empty($dims['height'])) {
+                $product->set_height($dims['height']);
+            }
+            if (!empty($dims['width'])) {
+                $product->set_width($dims['width']);
+            }
+            if (!empty($dims['length'])) {
+                $product->set_length($dims['length']);
+            }
+        }
+
+        // Set native WooCommerce GTIN field (WC 8.3+)
+        if (!empty($data['_gtin']) && method_exists($product, 'set_global_unique_id')) {
+            $product->set_global_unique_id($data['_gtin']);
         }
 
         // Set categories

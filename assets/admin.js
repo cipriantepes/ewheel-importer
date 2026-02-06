@@ -13,6 +13,8 @@
         init: function () {
             this.bindEvents();
             this.checkInitialStatus();
+            this.checkQueueStatus();
+            this.refreshProductCount(); // Auto-load product count
         },
 
         bindEvents: function () {
@@ -28,6 +30,41 @@
             $('#ewheel-pause-profile-sync').on('click', this.pauseProfileSync.bind(this));
             $('#ewheel-resume-profile-sync').on('click', this.resumeProfileSync.bind(this));
             $('#ewheel-cancel-profile-sync').on('click', this.cancelProfileSync.bind(this));
+
+            // Product count
+            $('#ewheel-refresh-product-count').on('click', this.refreshProductCount.bind(this));
+        },
+
+        checkQueueStatus: function () {
+            var $container = $('#ewheel-queue-status-container');
+            if ($container.length === 0) return;
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_queue_status',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success && response.data && response.data.available) {
+                        if (response.data.html) {
+                            $container.html(response.data.html);
+                            // Re-bind clear queue button if it exists
+                            $('#ewheel-clear-queue').on('click', function () {
+                                if (confirm('Are you sure? This will stop all syncs.')) {
+                                    $.post(ewheelImporter.ajaxUrl, {
+                                        action: 'ewheel_clear_queue',
+                                        nonce: ewheelImporter.nonce
+                                    }, function () {
+                                        location.reload();
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+            });
         },
 
         checkInitialStatus: function () {
@@ -226,11 +263,27 @@
             });
         },
 
+        cancelAttempts: 0,
+
         cancelSync: function (e) {
             e.preventDefault();
             var self = this;
 
+            // Track cancel attempts - force clear on second click
+            this.cancelAttempts++;
+            var forceMode = this.cancelAttempts >= 2;
+
+            var confirmMsg = forceMode
+                ? 'Force stop and clear all sync data? This will completely reset the sync state.'
+                : 'Are you sure you want to cancel this sync?';
+
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+
             this.updateSyncUI('stopping', null);
+            var $cancelBtn = $('#ewheel-cancel-sync');
+            $cancelBtn.text(forceMode ? 'Force stopping...' : 'Cancelling...').prop('disabled', true);
 
             $.ajax({
                 url: ewheelImporter.ajaxUrl,
@@ -238,24 +291,65 @@
                 data: {
                     action: 'ewheel_stop_sync',
                     nonce: ewheelImporter.nonce,
-                    sync_id: this.currentSyncId || ''
+                    sync_id: this.currentSyncId || '',
+                    force: forceMode ? 'true' : 'false'
                 },
                 success: function (response) {
-                    if (!response.success) {
+                    if (response.success) {
+                        // Stop any active polling
+                        if (self.pollInterval) {
+                            clearInterval(self.pollInterval);
+                            self.pollInterval = null;
+                        }
+
+                        // Reset cancel attempts
+                        self.cancelAttempts = 0;
+                        self.currentSyncId = null;
+
+                        // Update UI to stopped state immediately
+                        self.updateSyncUI('stopped', {});
+
+                        // Stop log polling after a delay to get final logs
+                        setTimeout(function () {
+                            self.stopLogPolling();
+                        }, 3000);
+
+                        if (forceMode) {
+                            // Force mode - reload after brief delay
+                            setTimeout(function () {
+                                location.reload();
+                            }, 1000);
+                        }
+                    } else {
                         $('#ewheel-sync-status').text('Error cancelling: ' + response.data.message);
+                        $cancelBtn.text('Force Stop').prop('disabled', false);
                     }
-                    // Polling will update UI when batch finishes
+                },
+                error: function () {
+                    $('#ewheel-sync-status').text('Network error. Try Force Stop.');
+                    $cancelBtn.text('Force Stop').prop('disabled', false);
                 }
             });
         },
 
+        logPollInterval: null,
+        logErrorCount: 0,
+        statusErrorCount: 0,
+        maxConsecutiveErrors: 3,
+
         startPolling: function () {
             var self = this;
 
-            // Clear any existing interval
+            // Reset error counters
+            this.statusErrorCount = 0;
+
+            // Clear any existing intervals
             if (this.pollInterval) {
                 clearInterval(this.pollInterval);
             }
+
+            // Start separate log polling
+            this.startLogPolling();
 
             this.pollInterval = setInterval(function () {
                 $.ajax({
@@ -266,7 +360,10 @@
                         nonce: ewheelImporter.nonce
                     },
                     success: function (response) {
-                        if (response.success) {
+                        // Reset error counter on success
+                        self.statusErrorCount = 0;
+
+                        if (response.success && response.data) {
                             var data = response.data;
                             var status = data.status;
 
@@ -275,29 +372,100 @@
                                 self.currentSyncId = data.id;
                             }
 
-                            self.updateSyncUI(status, data);
-
-                            // Stop polling on terminal states
-                            if (status === 'completed' || status === 'failed' || status === 'stopped' || status === 'paused') {
+                            // Stop polling if no active sync (empty/idle/undefined status)
+                            if (!status || status === 'idle' || status === 'completed' || status === 'failed' || status === 'stopped') {
                                 clearInterval(self.pollInterval);
                                 self.pollInterval = null;
                                 self.currentSyncId = null;
+
+                                // Update UI based on final status
+                                if (status === 'completed') {
+                                    self.updateSyncUI('completed', data);
+                                } else if (status === 'stopped') {
+                                    self.updateSyncUI('stopped', data);
+                                } else if (status === 'failed') {
+                                    self.updateSyncUI('failed', data);
+                                } else {
+                                    self.updateSyncUI('idle', data);
+                                }
+
+                                // Stop log polling after a delay (let final logs come through)
+                                setTimeout(function () {
+                                    self.stopLogPolling();
+                                }, 5000);
 
                                 // Reload page on completion after a delay
                                 if (status === 'completed') {
                                     setTimeout(function () {
                                         location.reload();
-                                    }, 2000);
+                                    }, 3000);
                                 }
+                                return;
                             }
+
+                            // Update UI for active states
+                            if (status === 'paused') {
+                                clearInterval(self.pollInterval);
+                                self.pollInterval = null;
+                                self.updateSyncUI('paused', data);
+                                // Keep log polling active when paused
+                                return;
+                            }
+
+                            self.updateSyncUI(status, data);
+                        } else {
+                            // No data or error - stop polling
+                            clearInterval(self.pollInterval);
+                            self.pollInterval = null;
+                            self.updateSyncUI('idle', {});
+                            self.stopLogPolling();
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        self.statusErrorCount++;
+                        console.warn('[Ewheel] Status poll error (' + self.statusErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
+
+                        if (self.statusErrorCount >= self.maxConsecutiveErrors) {
+                            clearInterval(self.pollInterval);
+                            self.pollInterval = null;
+                            self.stopLogPolling();
+                            $('#ewheel-sync-status').text('Connection lost. Refresh page to resume.');
+                            console.error('[Ewheel] Stopped polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
                         }
                     }
                 });
-                self.fetchLogs();
             }, 3000);
         },
 
+        startLogPolling: function () {
+            var self = this;
+
+            // Reset error counter
+            this.logErrorCount = 0;
+
+            // Clear any existing log interval
+            if (this.logPollInterval) {
+                clearInterval(this.logPollInterval);
+            }
+
+            // Fetch immediately
+            this.fetchLogs();
+
+            // Then poll every 2 seconds
+            this.logPollInterval = setInterval(function () {
+                self.fetchLogs();
+            }, 2000);
+        },
+
+        stopLogPolling: function () {
+            if (this.logPollInterval) {
+                clearInterval(this.logPollInterval);
+                this.logPollInterval = null;
+            }
+        },
+
         fetchLogs: function () {
+            var self = this;
             var $logConsole = $('#ewheel-activity-log');
             if ($logConsole.length === 0) return;
 
@@ -309,6 +477,9 @@
                     nonce: ewheelImporter.nonce
                 },
                 success: function (response) {
+                    // Reset error counter on success
+                    self.logErrorCount = 0;
+
                     if (response.success && response.data) {
                         var logs = response.data;
                         var html = '';
@@ -317,6 +488,15 @@
                             html += '<div style="color:' + color + '; margin-bottom: 2px;">[' + log.time + '] ' + log.message + '</div>';
                         });
                         $logConsole.html(html);
+                    }
+                },
+                error: function (xhr, status, error) {
+                    self.logErrorCount++;
+                    console.warn('[Ewheel] Log fetch error (' + self.logErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
+
+                    if (self.logErrorCount >= self.maxConsecutiveErrors) {
+                        self.stopLogPolling();
+                        console.error('[Ewheel] Stopped log polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
                     }
                 }
             });
@@ -398,11 +578,28 @@
             });
         },
 
+        profileCancelAttempts: 0,
+
         cancelProfileSync: function (e) {
             e.preventDefault();
+            var self = this;
             var profileId = this.currentProfileId;
 
+            // Track cancel attempts - force clear on second click
+            this.profileCancelAttempts++;
+            var forceMode = this.profileCancelAttempts >= 2;
+
+            var confirmMsg = forceMode
+                ? 'Force stop and clear all sync data? This will completely reset the sync state.'
+                : 'Are you sure you want to cancel this sync?';
+
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+
             this.updateProfileSyncUI('stopping', null);
+            var $cancelBtn = $('#ewheel-cancel-profile-sync');
+            $cancelBtn.text(forceMode ? 'Force stopping...' : 'Cancelling...').prop('disabled', true);
 
             $.ajax({
                 url: ewheelImporter.ajaxUrl,
@@ -410,7 +607,21 @@
                 data: {
                     action: 'ewheel_stop_sync',
                     nonce: ewheelImporter.nonce,
-                    profile_id: profileId
+                    profile_id: profileId,
+                    force: forceMode ? 'true' : 'false'
+                },
+                success: function (response) {
+                    if (response.success && forceMode) {
+                        self.profileCancelAttempts = 0;
+                        location.reload();
+                    } else if (!response.success) {
+                        $cancelBtn.text('Force Stop').prop('disabled', false);
+                    } else {
+                        $cancelBtn.text('Force Stop').prop('disabled', false);
+                    }
+                },
+                error: function () {
+                    $cancelBtn.text('Force Stop').prop('disabled', false);
                 }
             });
         },
@@ -481,8 +692,13 @@
             }
         },
 
+        profilePollErrorCount: 0,
+
         startProfilePolling: function (profileId) {
             var self = this;
+
+            // Reset error counter
+            this.profilePollErrorCount = 0;
 
             if (this.profilePollInterval) {
                 clearInterval(this.profilePollInterval);
@@ -498,6 +714,9 @@
                         profile_id: profileId
                     },
                     success: function (response) {
+                        // Reset error counter on success
+                        self.profilePollErrorCount = 0;
+
                         if (response.success) {
                             var data = response.data;
                             self.updateProfileSyncUI(data.status, data);
@@ -506,6 +725,17 @@
                                 clearInterval(self.profilePollInterval);
                                 self.profilePollInterval = null;
                             }
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        self.profilePollErrorCount++;
+                        console.warn('[Ewheel] Profile poll error (' + self.profilePollErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
+
+                        if (self.profilePollErrorCount >= self.maxConsecutiveErrors) {
+                            clearInterval(self.profilePollInterval);
+                            self.profilePollInterval = null;
+                            self.updateProfileSyncUI('idle', {});
+                            console.error('[Ewheel] Stopped profile polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
                         }
                     }
                 });
@@ -552,6 +782,41 @@
                         .removeClass('testing success')
                         .addClass('error')
                         .text(ewheelImporter.strings.connFailed + ' ' + error);
+                }
+            });
+        },
+
+        refreshProductCount: function (e) {
+            if (e) e.preventDefault();
+
+            var $button = $('#ewheel-refresh-product-count');
+            var $count = $('#ewheel-product-count');
+
+            $button.prop('disabled', true);
+            $button.find('.dashicons').addClass('ewheel-spin');
+            $count.text('...');
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_product_count',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    $button.prop('disabled', false);
+                    $button.find('.dashicons').removeClass('ewheel-spin');
+
+                    if (response.success) {
+                        $count.text(response.data.formatted);
+                    } else {
+                        $count.text('—');
+                    }
+                },
+                error: function () {
+                    $button.prop('disabled', false);
+                    $button.find('.dashicons').removeClass('ewheel-spin');
+                    $count.text('—');
                 }
             });
         }
@@ -701,6 +966,53 @@
         // Store reference to currentProfileId when profile is selected
         $(document).on('click', '.ewheel-profile-item', function () {
             EwheelImporter.currentProfileId = $(this).data('id');
+        });
+
+        // Cancel button in sync history table
+        $(document).on('click', '.ewheel-history-cancel-btn', function (e) {
+            e.preventDefault();
+
+            var $btn = $(this);
+            var syncId = $btn.data('sync-id');
+            var profileId = $btn.data('profile-id');
+
+            if (!syncId) {
+                console.error('No sync ID found on cancel button');
+                return;
+            }
+
+            if (!confirm(ewheelImporter.strings.confirmCancel || 'Are you sure you want to cancel this sync?')) {
+                return;
+            }
+
+            $btn.prop('disabled', true).text(ewheelImporter.strings.cancelling || 'Cancelling...');
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_stop_sync',
+                    nonce: ewheelImporter.nonce,
+                    sync_id: syncId,
+                    profile_id: profileId || ''
+                },
+                success: function (response) {
+                    if (response.success) {
+                        $btn.text('Cancelled').addClass('disabled');
+                        // Reload after short delay to show updated status
+                        setTimeout(function () {
+                            location.reload();
+                        }, 1000);
+                    } else {
+                        alert(response.data?.message || 'Failed to cancel sync');
+                        $btn.prop('disabled', false).text('Cancel');
+                    }
+                },
+                error: function () {
+                    alert('Failed to cancel sync');
+                    $btn.prop('disabled', false).text('Cancel');
+                }
+            });
         });
     });
 })(jQuery);

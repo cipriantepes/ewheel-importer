@@ -13,9 +13,15 @@ namespace Trotibike\EwheelImporter\Api;
 class WPHttpClient implements HttpClientInterface {
 
     /**
-     * Request timeout in seconds.
+     * Default request timeout in seconds.
      */
-    private const TIMEOUT = 30;
+    private const DEFAULT_TIMEOUT = 10;
+
+    /**
+     * Extended timeout for slow APIs (LLMs, etc) in seconds.
+     * Reduced from 60 to 30 to prevent blocking sync for too long.
+     */
+    private const EXTENDED_TIMEOUT = 30;
 
     /**
      * Make a POST request.
@@ -27,9 +33,12 @@ class WPHttpClient implements HttpClientInterface {
      * @throws \RuntimeException If the request fails.
      */
     public function post( string $url, array $body = [], array $headers = [] ): array {
+        // Use extended timeout for OpenRouter/LLM APIs
+        $timeout = $this->get_timeout_for_url( $url );
+
         $args = [
             'method'  => 'POST',
-            'timeout' => self::TIMEOUT,
+            'timeout' => $timeout,
             'headers' => array_merge(
                 [
                     'Content-Type' => 'application/json',
@@ -54,9 +63,11 @@ class WPHttpClient implements HttpClientInterface {
      * @throws \RuntimeException If the request fails.
      */
     public function get( string $url, array $headers = [] ): array {
+        $timeout = $this->get_timeout_for_url( $url );
+
         $args = [
             'method'  => 'GET',
-            'timeout' => self::TIMEOUT,
+            'timeout' => $timeout,
             'headers' => array_merge(
                 [
                     'Accept' => 'application/json',
@@ -68,6 +79,30 @@ class WPHttpClient implements HttpClientInterface {
         $response = wp_remote_get( $url, $args );
 
         return $this->handle_response( $response );
+    }
+
+    /**
+     * Get appropriate timeout based on URL.
+     *
+     * @param string $url The URL being requested.
+     * @return int Timeout in seconds.
+     */
+    private function get_timeout_for_url( string $url ): int {
+        // Extended timeout for LLM/AI APIs that can be slow
+        $slow_apis = [
+            'openrouter.ai',
+            'api.openai.com',
+            'api.anthropic.com',
+            'api.deepl.com',
+        ];
+
+        foreach ( $slow_apis as $api ) {
+            if ( strpos( $url, $api ) !== false ) {
+                return self::EXTENDED_TIMEOUT;
+            }
+        }
+
+        return self::DEFAULT_TIMEOUT;
     }
 
     /**

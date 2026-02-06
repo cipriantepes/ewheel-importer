@@ -10,6 +10,8 @@ namespace Trotibike\EwheelImporter\Sync;
 use Trotibike\EwheelImporter\Translation\Translator;
 use Trotibike\EwheelImporter\Pricing\PricingConverter;
 use Trotibike\EwheelImporter\Config\Configuration;
+use Trotibike\EwheelImporter\Config\AttributeConfiguration;
+use Trotibike\EwheelImporter\Log\PersistentLogger;
 
 /**
  * Transforms ewheel.es products to WooCommerce format.
@@ -80,117 +82,169 @@ class ProductTransformer
      */
     public function transform(array $ewheel_product): array
     {
-        // Handle case sensitivity (API returns lowercase, code might expect PascalCase)
-        $p = array_change_key_case($ewheel_product, CASE_LOWER);
+        try {
+            // Handle case sensitivity (API returns lowercase, code might expect PascalCase)
+            $p = array_change_key_case($ewheel_product, CASE_LOWER);
 
-        $has_variants = !empty($p['variants']);
-        $use_variable_mode = $this->config->is_variable_product_mode();
+            // DEBUG: Log transform start
+            $ref = $p['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
+            PersistentLogger::info("[DEBUG] ProductTransformer::transform - reference: {$ref}");
 
-        // If simple mode and has variants, expand to multiple simple products
-        if ($has_variants && !$use_variable_mode) {
-            return $this->transform_to_simple_products($ewheel_product);
-        }
+            $has_variants = !empty($p['variants']);
+            $use_variable_mode = $this->config->is_variable_product_mode();
 
-        // Standard transformation (single product)
-        $product_type = $has_variants ? 'variable' : 'simple';
+            // DEBUG: Log transform mode
+            $mode = $has_variants ? ($use_variable_mode ? 'variable' : 'simple-expanded') : 'simple';
+            PersistentLogger::info("[DEBUG] Transform mode: {$mode}");
 
-        // Detect if top-level data is missing but variants exist (container structure)
-        if (empty($p['reference']) && empty($p['name']) && !empty($p['variants'])) {
-            $first_variant = array_change_key_case($p['variants'][0], CASE_LOWER);
-
-            // Fallback for Name
-            if (empty($p['name'])) {
-                $p['name'] = $first_variant['name'] ?? [];
+            // If simple mode and has variants, expand to multiple simple products
+            if ($has_variants && !$use_variable_mode) {
+                return $this->transform_to_simple_products($ewheel_product);
             }
 
-            // Fallback for Description
-            if (empty($p['description'])) {
-                $p['description'] = $first_variant['description'] ?? [];
+            // Standard transformation (single product)
+            $product_type = $has_variants ? 'variable' : 'simple';
+
+            // Detect if top-level data is missing but variants exist (container structure)
+            if (empty($p['reference']) && empty($p['name']) && !empty($p['variants'])) {
+                $first_variant = array_change_key_case($p['variants'][0], CASE_LOWER);
+
+                // Fallback for Name
+                if (empty($p['name'])) {
+                    $p['name'] = $first_variant['name'] ?? [];
+                }
+
+                // Fallback for Description
+                if (empty($p['description'])) {
+                    $p['description'] = $first_variant['description'] ?? [];
+                }
+
+                // Fallback for Images
+                if (empty($p['images'])) {
+                    $p['images'] = $first_variant['images'] ?? [];
+                }
+
+                // Fallback for Attributes
+                if (empty($p['attributes'])) {
+                    $p['attributes'] = $first_variant['attributes'] ?? [];
+                }
+
+                // Fallback for Reference (SKU) to ensure parent has an ID
+                if (empty($p['reference'])) {
+                    // Use first variant's reference but maybe prefix or use as base
+                    $p['reference'] = $first_variant['reference'] ?? '';
+                }
             }
 
-            // Fallback for Images
-            if (empty($p['images'])) {
-                $p['images'] = $first_variant['images'] ?? [];
+            $sync_fields = $this->config->get_sync_fields();
+
+            $woo_product = [
+                'sku' => $p['reference'] ?? ($ewheel_product['Reference'] ?? ''),
+                'status' => ($p['active'] ?? ($ewheel_product['Active'] ?? false)) ? 'publish' : 'draft',
+                'type' => $product_type,
+                'manage_stock' => false,
+                'stock_status' => 'instock', // Required when manage_stock is false
+                'meta_data' => $this->get_meta_data($ewheel_product),
+            ];
+
+            // DEBUG: Log before name translation
+            $name_val = $this->get_mapped_value($p, 'name', 'name');
+            PersistentLogger::info("[DEBUG] name_val type: " . gettype($name_val) . ", value: " . (is_array($name_val) ? json_encode($name_val) : substr((string) $name_val, 0, 100)));
+
+            if ($name_val !== null) {
+                $woo_product['name'] = $this->translate_field($name_val);
+                PersistentLogger::info("[DEBUG] Translated name: " . substr($woo_product['name'], 0, 100));
             }
 
-            // Fallback for Attributes
-            if (empty($p['attributes'])) {
-                $p['attributes'] = $first_variant['attributes'] ?? [];
+            // Description: Use the translated NAME field as the product description
+            // The API description field contains pipe-separated inventory data (EAN, UPC, dimensions)
+            // which is NOT customer-facing content. The NAME field has the actual product description.
+            $name_for_desc = $this->get_mapped_value($p, 'name', 'name');
+            if ($name_for_desc !== null) {
+                $woo_product['description'] = $this->translate_field($name_for_desc);
             }
 
-            // Fallback for Reference (SKU) to ensure parent has an ID
-            if (empty($p['reference'])) {
-                // Use first variant's reference but maybe prefix or use as base
-                $p['reference'] = $first_variant['reference'] ?? '';
+            // Extract structured data from pipe-separated description
+            // Returns: gtin, brand, dimensions, attributes, meta
+            $pipe_data = $this->extract_pipe_attributes($ewheel_product);
+
+            // Short Description: Build a clean specs table from visible attributes
+            $specs_table = $this->build_specs_table($pipe_data);
+            if (!empty($specs_table)) {
+                $woo_product['short_description'] = $specs_table;
             }
+
+            // Store internal data for WooCommerceSync to process
+            // These keys are prefixed with _ to indicate internal use
+            if (!empty($pipe_data['brand'])) {
+                $woo_product['_brand'] = $pipe_data['brand'];
+            }
+
+            if (!empty($pipe_data['dimensions'])) {
+                $woo_product['_dimensions'] = $pipe_data['dimensions'];
+            }
+
+            if (!empty($pipe_data['gtin']['ean'])) {
+                $woo_product['_gtin'] = $pipe_data['gtin']['ean'];
+                // Also add to meta_data
+                $woo_product['meta_data'][] = [
+                    'key' => '_ewheel_ean',
+                    'value' => $pipe_data['gtin']['ean'],
+                ];
+            }
+
+            if (!empty($pipe_data['gtin']['upc'])) {
+                $woo_product['meta_data'][] = [
+                    'key' => '_ewheel_upc',
+                    'value' => $pipe_data['gtin']['upc'],
+                ];
+            }
+
+            $price_val = $this->get_mapped_value($p, 'price', 'rrp');
+            if ($price_val !== null) {
+                $woo_product['regular_price'] = $this->convert_price($price_val);
+            }
+
+            $images_val = $this->get_mapped_value($p, 'images', 'images');
+            if ($images_val !== null) {
+                $woo_product['images'] = $this->transform_images(is_array($images_val) ? $images_val : []);
+            }
+
+            $cats_val = $this->get_mapped_value($p, 'categories', 'categories');
+            if ($cats_val !== null) {
+                $woo_product['categories'] = $this->transform_categories(is_array($cats_val) ? $cats_val : []);
+            }
+
+            $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
+            $api_attributes = [];
+            if ($attrs_val !== null) {
+                $api_attributes = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
+            }
+
+            // Merge pipe-extracted attributes (from description field) with API attributes
+            $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_data);
+            $woo_product['attributes'] = array_merge($api_attributes, $pipe_woo_attributes);
+
+            // Add variations for variable products
+            if ($has_variants) {
+                PersistentLogger::info("[DEBUG] Processing " . count($p['variants']) . " variants");
+                $woo_product['variations'] = $this->transform_variations($p['variants']);
+                // For variable products, variation attributes take precedence
+                $variation_attrs = $this->get_variation_attributes($ewheel_product);
+                // Merge with pipe attributes but keep variation attrs as the base
+                $woo_product['attributes'] = array_merge($pipe_woo_attributes, $variation_attrs);
+            }
+
+            // DEBUG: Log transform output
+            PersistentLogger::info("[DEBUG] Transform output: 1 product, SKU: " . ($woo_product['sku'] ?? 'none') . ", name: " . substr($woo_product['name'] ?? 'no-name', 0, 50));
+
+            return [$woo_product];
+        } catch (\Throwable $e) {
+            $ref = $ewheel_product['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
+            PersistentLogger::error("[DEBUG] Transform EXCEPTION for {$ref}: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+            error_log("ProductTransformer::transform exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return [];
         }
-
-        $sync_fields = $this->config->get_sync_fields();
-
-        $woo_product = [
-            'sku' => $p['reference'] ?? ($ewheel_product['Reference'] ?? ''),
-            'status' => ($p['active'] ?? ($ewheel_product['Active'] ?? false)) ? 'publish' : 'draft',
-            'type' => $product_type,
-            'manage_stock' => false,
-            'meta_data' => $this->get_meta_data($ewheel_product),
-        ];
-
-        $name_val = $this->get_mapped_value($p, 'name', 'name');
-        if ($name_val !== null) {
-            $woo_product['name'] = $this->translate_field($name_val);
-        }
-
-        // Description: Use the translated NAME field as the product description
-        // The API description field contains pipe-separated inventory data (EAN, UPC, dimensions)
-        // which is NOT customer-facing content. The NAME field has the actual product description.
-        $name_for_desc = $this->get_mapped_value($p, 'name', 'name');
-        if ($name_for_desc !== null) {
-            $woo_product['description'] = $this->translate_field($name_for_desc);
-        }
-
-        // Short Description: Build a clean specs table from the pipe-separated data
-        // This extracts useful attributes (brand, color, dimensions) into a formatted table
-        $pipe_attributes = $this->extract_pipe_attributes($ewheel_product);
-        $specs_table = $this->build_specs_table($pipe_attributes);
-        if (!empty($specs_table)) {
-            $woo_product['short_description'] = $specs_table;
-        }
-
-        $price_val = $this->get_mapped_value($p, 'price', 'rrp');
-        if ($price_val !== null) {
-            $woo_product['regular_price'] = $this->convert_price($price_val);
-        }
-
-        $images_val = $this->get_mapped_value($p, 'images', 'images');
-        if ($images_val !== null) {
-            $woo_product['images'] = $this->transform_images(is_array($images_val) ? $images_val : []);
-        }
-
-        $cats_val = $this->get_mapped_value($p, 'categories', 'categories');
-        if ($cats_val !== null) {
-            $woo_product['categories'] = $this->transform_categories(is_array($cats_val) ? $cats_val : []);
-        }
-
-        $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
-        $api_attributes = [];
-        if ($attrs_val !== null) {
-            $api_attributes = $this->transform_attributes(is_array($attrs_val) ? $attrs_val : []);
-        }
-
-        // Merge pipe-extracted attributes (from description field) with API attributes
-        $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_attributes);
-        $woo_product['attributes'] = array_merge($api_attributes, $pipe_woo_attributes);
-
-        // Add variations for variable products
-        if ($has_variants) {
-            $woo_product['variations'] = $this->transform_variations($p['variants']);
-            // For variable products, variation attributes take precedence
-            $variation_attrs = $this->get_variation_attributes($ewheel_product);
-            // Merge with pipe attributes but keep variation attrs as the base
-            $woo_product['attributes'] = array_merge($pipe_woo_attributes, $variation_attrs);
-        }
-
-        return [$woo_product];
     }
 
     /**
@@ -289,6 +343,7 @@ class ProductTransformer
                 'status' => ($p['active'] ?? ($ewheel_product['Active'] ?? false)) ? 'publish' : 'draft',
                 'type' => 'simple',
                 'manage_stock' => false,
+                'stock_status' => 'instock', // Required when manage_stock is false
                 'meta_data' => array_merge(
                     $this->get_meta_data($ewheel_product),
                     [
@@ -322,25 +377,45 @@ class ProductTransformer
                 $woo_product['description'] = $this->translate_field($name_for_desc);
             }
 
+            // Extract structured data from pipe-separated description
+            $pipe_data = $this->extract_pipe_attributes($ewheel_product);
+
             // Short Description: Build specs table from pipe-separated data
-            $pipe_attributes = $this->extract_pipe_attributes($ewheel_product);
-            $specs_table = $this->build_specs_table($pipe_attributes);
+            $specs_table = $this->build_specs_table($pipe_data);
             if (!empty($specs_table)) {
                 $woo_product['short_description'] = $specs_table;
             }
 
-            $price_val = $this->get_mapped_value($v, 'price', 'net'); // Variants usually use 'net' as default price source? Or 'rrp'?
-            // Original code: $price = $v['net'] ?? ($variant['Net'] ?? 0);
-            // So default source for variant IS 'net'.
-            // But if user mapped 'price' to 'rrp', we should check $v['rrp']? 
-            // Variants might not have RRP. 
-            // If mapping is global 'price' -> 'rrp', and variant doesn't have it, we fallback to 0?
-            // Let's use $v as source data.
+            // Store internal data for WooCommerceSync to process
+            if (!empty($pipe_data['brand'])) {
+                $woo_product['_brand'] = $pipe_data['brand'];
+            }
+
+            if (!empty($pipe_data['dimensions'])) {
+                $woo_product['_dimensions'] = $pipe_data['dimensions'];
+            }
+
+            if (!empty($pipe_data['gtin']['ean'])) {
+                $woo_product['_gtin'] = $pipe_data['gtin']['ean'];
+                $woo_product['meta_data'][] = [
+                    'key' => '_ewheel_ean',
+                    'value' => $pipe_data['gtin']['ean'],
+                ];
+            }
+
+            if (!empty($pipe_data['gtin']['upc'])) {
+                $woo_product['meta_data'][] = [
+                    'key' => '_ewheel_upc',
+                    'value' => $pipe_data['gtin']['upc'],
+                ];
+            }
+
+            $price_val = $this->get_mapped_value($v, 'price', 'net');
             if ($price_val !== null) {
                 $woo_product['regular_price'] = $this->convert_price($price_val);
             }
 
-            $images_val = $this->get_mapped_value($p, 'image', 'images'); // Images usually from parent
+            $images_val = $this->get_mapped_value($p, 'image', 'images');
             if ($images_val !== null) {
                 $woo_product['images'] = $this->transform_images(is_array($images_val) ? $images_val : []);
             }
@@ -353,12 +428,12 @@ class ProductTransformer
             $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
             $parent_attrs = [];
             if ($attrs_val !== null) {
-                $parent_attrs = $this->transform_attributes(is_array($attrs_val) ? $attrs_val : []);
+                $parent_attrs = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
             }
 
             // Combine: parent attrs + variant attrs + pipe-extracted attrs
             $variant_attrs_woo = $this->transform_variant_attributes($v);
-            $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_attributes);
+            $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_data);
             $woo_product['attributes'] = array_merge($parent_attrs, $variant_attrs_woo, $pipe_woo_attributes);
 
             $products[] = $woo_product;
@@ -477,7 +552,30 @@ class ProductTransformer
         }
 
         if (is_array($text) && !empty($text)) {
-            return $this->translator->translate_multilingual($text);
+            try {
+                // Normalize keys to lowercase for consistent lookup
+                $normalized = [];
+                foreach ($text as $key => $value) {
+                    $normalized[strtolower($key)] = $value;
+                }
+
+                // If it has 'translations' key, pass as-is (complex format)
+                if (isset($normalized['translations'])) {
+                    return $this->translator->translate_multilingual($text);
+                }
+
+                // Simple format - use normalized keys
+                return $this->translator->translate_multilingual($normalized);
+            } catch (\Throwable $e) {
+                PersistentLogger::error("[DEBUG] translate_text exception: " . $e->getMessage());
+                // Fallback: try to extract any string value
+                foreach ($text as $value) {
+                    if (is_string($value) && !empty($value)) {
+                        return $value;
+                    }
+                }
+                return '';
+            }
         }
 
         return '';
@@ -668,6 +766,79 @@ class ProductTransformer
     }
 
     /**
+     * Transform attributes to WooCommerce format with visibility support.
+     *
+     * Uses AttributeConfiguration to determine:
+     * - Whether attribute should be visible on product page
+     * - Whether attribute should be stored as meta instead
+     * - Whether attribute is brand (skip - handled separately)
+     * - Whether attribute is dimension (skip - handled by WC native fields)
+     *
+     * @param array $attributes Array of attributes from API.
+     * @return array WooCommerce attributes array with visibility flags.
+     */
+    private function transform_attributes_with_visibility(array $attributes): array
+    {
+        $woo_attributes = [];
+
+        foreach ($attributes as $key => $value) {
+            $attr_name = $key;
+            $attr_val = $value;
+
+            if (is_array($value)) {
+                $attr_name = $value['alias'] ?? ($value['Alias'] ?? '');
+                $attr_val = $value['value'] ?? ($value['Value'] ?? '');
+            }
+
+            if (empty($attr_name)) {
+                continue;
+            }
+
+            $normalized_key = AttributeConfiguration::normalize_key($attr_name);
+
+            // Skip brand - handled as taxonomy
+            if (AttributeConfiguration::is_brand($normalized_key)) {
+                continue;
+            }
+
+            // Skip dimensions - handled by WC native fields
+            if (AttributeConfiguration::is_dimension($normalized_key)) {
+                continue;
+            }
+
+            // Skip meta attributes - stored separately
+            if (AttributeConfiguration::is_meta($normalized_key)) {
+                continue;
+            }
+
+            // Clean the attribute value
+            $final_val = $this->clean_attribute_value($attr_val);
+
+            if ($final_val === null) {
+                continue;
+            }
+
+            // Translate attribute name
+            $translated_name = $this->translate_attribute_name((string) $attr_name);
+
+            // Translate value
+            $translated_val = $this->translate_attribute_value($final_val);
+
+            // Determine visibility from configuration
+            $is_visible = AttributeConfiguration::get_visibility($normalized_key);
+
+            $woo_attributes[] = [
+                'name' => $translated_name,
+                'options' => [$translated_val],
+                'visible' => $is_visible,
+                'variation' => false,
+            ];
+        }
+
+        return $woo_attributes;
+    }
+
+    /**
      * Get variation attributes from a product with variants.
      *
      * @param array $ewheel_product The ewheel.es product.
@@ -835,15 +1006,16 @@ class ProductTransformer
      * Translate attribute name to target language.
      *
      * @param string $name The attribute name (e.g., "marca", "color").
+     * @param string $source_lang Source language code (default: 'es').
      * @return string The translated and formatted name.
      */
-    private function translate_attribute_name(string $name): string
+    private function translate_attribute_name(string $name, string $source_lang = 'es'): string
     {
         // First format the name
         $formatted = $this->format_attribute_name($name);
 
         // Translate the formatted name to target language
-        $translated = $this->translator->translate($formatted);
+        $translated = $this->translator->translate($formatted, $source_lang);
 
         return !empty($translated) ? $translated : $formatted;
     }
@@ -852,12 +1024,14 @@ class ProductTransformer
      * Translate attribute value to target language.
      *
      * @param string $value The attribute value.
+     * @param string $source_lang Source language code (default: 'es').
      * @return string The translated value.
      */
-    private function translate_attribute_value(string $value): string
+    private function translate_attribute_value(string $value, string $source_lang = 'es'): string
     {
         // Skip translation for numeric values, URLs, file paths, and codes
-        if (is_numeric($value)
+        if (
+            is_numeric($value)
             || preg_match('/^https?:\/\//', $value)
             || preg_match('/\.(pdf|jpg|png|gif)$/i', $value)
             || preg_match('/^\d+(\.\d+)?\s*(kg|cm|mm|m|g|l|ml)$/i', $value)
@@ -866,7 +1040,7 @@ class ProductTransformer
         }
 
         // Translate text values
-        $translated = $this->translator->translate($value);
+        $translated = $this->translator->translate($value, $source_lang);
 
         return !empty($translated) ? $translated : $value;
     }
@@ -1173,109 +1347,144 @@ class ProductTransformer
     /**
      * Extract attributes from pipe-separated description data.
      *
-     * Parses known positions from the pipe-separated format:
-     * - Position 7: Brand
-     * - Position 16: Color
-     * - Position 32: Weight (kg)
-     * - Position 33: Height (cm)
-     * - Position 34: Width (cm)
-     * - Position 35: Length (cm)
-     * - Position 41: Family
-     * - Position 42: Subfamily
+     * Returns a structured array with categories:
+     * - gtin: EAN and UPC barcodes
+     * - brand: Brand name (for taxonomy)
+     * - dimensions: Weight and physical dimensions (for WC native fields)
+     * - attributes: Display attributes (color, etc.)
+     * - meta: Internal metadata
+     *
+     * Pipe positions:
+     * - 0: EAN, 1: UPC, 7: Brand, 16: Color
+     * - 32: Weight (kg), 33: Height (cm), 34: Width (cm), 35: Length (cm)
+     * - 41: Family, 42: Subfamily
      *
      * @param array $ewheel_product The ewheel.es product data.
-     * @return array Associative array of extracted attributes.
+     * @return array Structured array with gtin, brand, dimensions, attributes, meta.
      */
     public function extract_pipe_attributes(array $ewheel_product): array
     {
         $text = $this->get_description_text($ewheel_product);
 
+        $result = [
+            'gtin' => ['ean' => null, 'upc' => null],
+            'brand' => null,
+            'dimensions' => [
+                'weight' => null,
+                'height' => null,
+                'width' => null,
+                'length' => null,
+            ],
+            'attributes' => [],
+            'meta' => [],
+        ];
+
         if (empty($text) || strpos($text, '|') === false) {
-            return [];
+            return $result;
         }
 
         $parts = array_map('trim', explode('|', $text));
-        $attributes = [];
 
-        // Position 7: Brand
+        // Position 0: EAN (8-14 digits)
+        if (!empty($parts[0]) && preg_match('/^\d{8,14}$/', $parts[0])) {
+            $result['gtin']['ean'] = $parts[0];
+        }
+
+        // Position 1: UPC (12 digits typically)
+        if (!empty($parts[1]) && preg_match('/^\d{10,14}$/', $parts[1])) {
+            $result['gtin']['upc'] = $parts[1];
+        }
+
+        // Position 7: Brand (for taxonomy, not attribute)
         if (!empty($parts[7]) && $parts[7] !== '/' && $parts[7] !== '0') {
-            $attributes['brand'] = $parts[7];
+            $result['brand'] = $parts[7];
         }
 
-        // Position 16: Color
+        // Position 16: Color (visible attribute)
         if (!empty($parts[16]) && $parts[16] !== '/' && $parts[16] !== '0') {
-            $attributes['color'] = $parts[16];
+            $result['attributes']['color'] = [
+                'value' => $parts[16],
+                'visible' => AttributeConfiguration::get_visibility('color'),
+            ];
         }
 
+        // Dimensions (for WooCommerce native fields - raw numeric values)
         // Position 32: Weight (kg)
         if (!empty($parts[32]) && is_numeric($parts[32]) && (float) $parts[32] > 0) {
-            $attributes['weight'] = $parts[32] . ' kg';
+            $result['dimensions']['weight'] = (float) $parts[32];
         }
 
         // Position 33: Height (cm)
         if (!empty($parts[33]) && is_numeric($parts[33]) && (float) $parts[33] > 0) {
-            $attributes['height'] = $parts[33] . ' cm';
+            $result['dimensions']['height'] = (float) $parts[33];
         }
 
         // Position 34: Width (cm)
         if (!empty($parts[34]) && is_numeric($parts[34]) && (float) $parts[34] > 0) {
-            $attributes['width'] = $parts[34] . ' cm';
+            $result['dimensions']['width'] = (float) $parts[34];
         }
 
         // Position 35: Length (cm)
         if (!empty($parts[35]) && is_numeric($parts[35]) && (float) $parts[35] > 0) {
-            $attributes['length'] = $parts[35] . ' cm';
+            $result['dimensions']['length'] = (float) $parts[35];
         }
 
-        // Position 41: Family
+        // Position 41: Family (hidden attribute)
         if (!empty($parts[41]) && $parts[41] !== '/' && $parts[41] !== '0') {
-            $attributes['family'] = $parts[41];
+            $result['attributes']['familia-sage'] = [
+                'value' => $parts[41],
+                'visible' => AttributeConfiguration::get_visibility('familia-sage'),
+            ];
         }
 
-        // Position 42: Subfamily
+        // Position 42: Subfamily (hidden attribute)
         if (!empty($parts[42]) && $parts[42] !== '/' && $parts[42] !== '0') {
-            $attributes['subfamily'] = $parts[42];
+            $result['attributes']['subfamilia-sage'] = [
+                'value' => $parts[42],
+                'visible' => AttributeConfiguration::get_visibility('subfamilia-sage'),
+            ];
         }
 
-        return $attributes;
+        return $result;
     }
 
     /**
      * Convert pipe attributes to WooCommerce attribute format.
      *
-     * Takes the associative array from extract_pipe_attributes() and converts
-     * it to the WooCommerce attributes array format with Romanian labels.
+     * Takes the structured array from extract_pipe_attributes() and converts
+     * the 'attributes' section to WooCommerce format with visibility support.
      *
-     * @param array $pipe_attributes Associative array from extract_pipe_attributes().
+     * @param array $pipe_data Structured array from extract_pipe_attributes().
      * @return array WooCommerce attributes array.
      */
-    public function convert_pipe_attributes_to_woo(array $pipe_attributes): array
+    public function convert_pipe_attributes_to_woo(array $pipe_data): array
     {
-        if (empty($pipe_attributes)) {
+        // Handle both old format (flat array) and new format (structured with 'attributes' key)
+        $attributes = isset($pipe_data['attributes']) ? $pipe_data['attributes'] : $pipe_data;
+
+        if (empty($attributes)) {
             return [];
         }
 
-        // Romanian labels for display
-        $labels = [
-            'brand' => 'Marcă',
-            'color' => 'Culoare',
-            'weight' => 'Greutate',
-            'height' => 'Înălțime',
-            'width' => 'Lățime',
-            'length' => 'Lungime',
-            'family' => 'Familie',
-            'subfamily' => 'Subfamilie',
-        ];
-
         $woo_attributes = [];
 
-        foreach ($pipe_attributes as $key => $value) {
-            $label = $labels[$key] ?? ucfirst($key);
+        foreach ($attributes as $key => $data) {
+            // Handle both old format (direct value) and new format (array with 'value' and 'visible')
+            if (is_array($data) && isset($data['value'])) {
+                $value = $data['value'];
+                $visible = $data['visible'] ?? true;
+            } else {
+                $value = $data;
+                $visible = true;
+            }
+
+            // Get Romanian label from AttributeConfiguration
+            $label = AttributeConfiguration::get_label($key);
 
             $woo_attributes[] = [
                 'name' => $label,
                 'options' => [$value],
-                'visible' => true,
+                'visible' => $visible,
                 'variation' => false,
             ];
         }
@@ -1287,37 +1496,64 @@ class ProductTransformer
      * Build a clean HTML specs table from extracted attributes.
      *
      * Creates a formatted table with Romanian labels for use as short description.
+     * Only includes visible attributes in the specs table.
      *
-     * @param array $attributes Associative array of attributes from extract_pipe_attributes().
-     * @return string HTML table string, or empty string if no attributes.
+     * @param array $pipe_data Structured array from extract_pipe_attributes().
+     * @return string HTML table string, or empty string if no visible attributes.
      */
-    public function build_specs_table(array $attributes): string
+    public function build_specs_table(array $pipe_data): string
     {
-        if (empty($attributes)) {
-            return '';
+        // Collect visible specs from multiple sources
+        $specs = [];
+
+        // Brand (if available)
+        if (!empty($pipe_data['brand'])) {
+            $specs['brand'] = $pipe_data['brand'];
         }
 
-        // Romanian labels for each attribute key
-        $labels = [
-            'brand' => 'Marcă',
-            'color' => 'Culoare',
-            'weight' => 'Greutate',
-            'height' => 'Înălțime',
-            'width' => 'Lățime',
-            'length' => 'Lungime',
-            'family' => 'Familie',
-            'subfamily' => 'Subfamilie',
-        ];
+        // Dimensions with units (only if visible and non-zero)
+        if (!empty($pipe_data['dimensions'])) {
+            $dims = $pipe_data['dimensions'];
+            if (!empty($dims['weight'])) {
+                $specs['weight'] = $dims['weight'] . ' kg';
+            }
+            if (!empty($dims['height'])) {
+                $specs['height'] = $dims['height'] . ' cm';
+            }
+            if (!empty($dims['width'])) {
+                $specs['width'] = $dims['width'] . ' cm';
+            }
+            if (!empty($dims['length'])) {
+                $specs['length'] = $dims['length'] . ' cm';
+            }
+        }
+
+        // Visible attributes only
+        if (!empty($pipe_data['attributes'])) {
+            foreach ($pipe_data['attributes'] as $key => $data) {
+                $visible = is_array($data) ? ($data['visible'] ?? true) : true;
+                $value = is_array($data) ? ($data['value'] ?? $data) : $data;
+
+                if ($visible && !empty($value)) {
+                    $specs[$key] = $value;
+                }
+            }
+        }
+
+        if (empty($specs)) {
+            return '';
+        }
 
         $html = '<table class="product-specs woocommerce-product-attributes shop_attributes">';
         $html .= '<tbody>';
 
-        foreach ($attributes as $key => $value) {
-            $label = $labels[$key] ?? ucfirst($key);
+        foreach ($specs as $key => $value) {
+            $label = AttributeConfiguration::get_label($key);
             $escaped_label = function_exists('esc_html') ? esc_html($label) : htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
             $escaped_value = function_exists('esc_html') ? esc_html($value) : htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+            $safe_key = function_exists('esc_attr') ? esc_attr($key) : htmlspecialchars($key, ENT_QUOTES, 'UTF-8');
 
-            $html .= '<tr class="woocommerce-product-attributes-item woocommerce-product-attributes-item--' . esc_attr($key) . '">';
+            $html .= '<tr class="woocommerce-product-attributes-item woocommerce-product-attributes-item--' . $safe_key . '">';
             $html .= '<th class="woocommerce-product-attributes-item__label">' . $escaped_label . '</th>';
             $html .= '<td class="woocommerce-product-attributes-item__value">' . $escaped_value . '</td>';
             $html .= '</tr>';
@@ -1327,5 +1563,137 @@ class ProductTransformer
         $html .= '</table>';
 
         return $html;
+    }
+
+    /**
+     * Prefetch translations for a batch of products.
+     *
+     * Extracts all translatable strings (names, attributes, pipe-descriptions)
+     * and processes them in a single batch to avoid multiple API calls.
+     *
+     * @param array $ewheel_products Array of raw ewheel products.
+     * @return void
+     */
+    public function prefetch_translations(array $ewheel_products): void
+    {
+        $texts_to_translate = [];
+
+        foreach ($ewheel_products as $product) {
+            $p = array_change_key_case($product, CASE_LOWER);
+
+            // 1. Name
+            $name_val = $this->get_mapped_value($p, 'name', 'name');
+            if ($name_val) {
+                $text = $this->extract_es_text($name_val);
+                if ($text)
+                    $texts_to_translate[$text] = true;
+            }
+
+            // 2. Attributes (names and values)
+            $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
+            if (is_array($attrs_val)) {
+                $this->collect_attribute_texts($attrs_val, $texts_to_translate);
+            }
+
+            // 3. Variants Attributes
+            if (!empty($p['variants']) && is_array($p['variants'])) {
+                foreach ($p['variants'] as $variant) {
+                    $v = array_change_key_case($variant, CASE_LOWER);
+                    if (!empty($v['attributes'])) {
+                        $this->collect_attribute_texts($v['attributes'], $texts_to_translate);
+                    }
+                }
+            }
+
+            // 4. Pipe Description Attributes (Brand, Family, Subfamily, Color)
+            // Note: Pipe description itself usually contains values that need translation?
+            // Actually, extract_pipe_attributes returns raw values.
+            // convert_pipe_attributes_to_woo translates specific keys (color, etc.)?
+            // convert_pipe_attributes_to_woo uses $labels (hardcoded Romanian). 
+            // It puts values directly into options.
+        }
+
+        if (!empty($texts_to_translate)) {
+            $unique_texts = array_keys($texts_to_translate);
+            $count = count($unique_texts);
+
+            PersistentLogger::info("[Performance] Prefetching translations for $count strings...");
+
+            // Process in chunks of 50 to respect API limits if necessary
+            foreach (array_chunk($unique_texts, 50) as $chunk) {
+                $this->translator->translate_batch($chunk, 'es');
+            }
+        }
+    }
+
+    /**
+     * Helper to collect attribute texts (names and values) for translation.
+     *
+     * @param array $attributes RAW attributes array.
+     * @param array &$collection Reference to collection array.
+     */
+    private function collect_attribute_texts(array $attributes, array &$collection): void
+    {
+        foreach ($attributes as $key => $val) {
+            $name = $key;
+            $value = $val;
+
+            if (is_array($val)) {
+                $name = $val['alias'] ?? ($val['Alias'] ?? '');
+                $value = $val['value'] ?? ($val['Value'] ?? '');
+            }
+
+            // Attribute Name
+            $fmt_name = $this->format_attribute_name((string) $name);
+            if ($fmt_name)
+                $collection[$fmt_name] = true;
+
+            // Attribute Value
+            if (is_array($value)) {
+                $value = isset($value['value']) ? $value['value'] : $this->extract_es_text($value);
+            }
+            // For value arrays (multiselect), we might need to implode or loop?
+            // clean_attribute_value handles imploding.
+            // But translate_attribute_value translates the raw string properly if it's text.
+
+            if (is_string($value) && !is_numeric($value)) {
+                // Heuristic: only translate if it looks like text
+                if (strlen($value) > 2 && !preg_match('/^https?:/', $value)) {
+                    $collection[$value] = true;
+                }
+            }
+        }
+    }
+
+    /**
+     * Helper to extract Spanish text from a mixed/multilingual field.
+     *
+     * @param mixed $field
+     * @return string
+     */
+    private function extract_es_text($field): string
+    {
+        if (is_string($field))
+            return $field;
+        if (is_array($field)) {
+            // Try 'es'
+            if (isset($field['es']))
+                return $field['es'];
+
+            // Try 'translations' array
+            if (isset($field['translations'])) {
+                foreach ($field['translations'] as $t) {
+                    if (($t['reference'] ?? '') === 'es')
+                        return $t['value'] ?? '';
+                }
+            }
+
+            // Fallback to first string
+            foreach ($field as $v) {
+                if (is_string($v))
+                    return $v;
+            }
+        }
+        return '';
     }
 }

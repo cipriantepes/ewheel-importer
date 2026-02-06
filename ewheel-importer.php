@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           1.2.9
+ * Version:           1.5.0
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.2.9');
+define('EWHEEL_IMPORTER_VERSION', '1.5.0');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -179,6 +179,9 @@ final class Ewheel_Importer
      */
     private function init_hooks(): void
     {
+        // Register AJAX error handler for debugging
+        add_action('admin_init', [$this, 'register_ajax_error_handler']);
+
         // Admin
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_init', [$this, 'register_settings']);
@@ -204,6 +207,11 @@ final class Ewheel_Importer
         add_action('wp_ajax_ewheel_save_category_mapping', [$this, 'ajax_save_category_mapping']);
         add_action('wp_ajax_ewheel_sync_categories', [$this, 'ajax_sync_categories']);
 
+        // Category translation AJAX handlers
+        add_action('wp_ajax_ewheel_translate_categories', [$this, 'ajax_translate_categories']);
+        add_action('wp_ajax_ewheel_save_category_translation', [$this, 'ajax_save_category_translation']);
+        add_action('wp_ajax_ewheel_clear_category_translations', [$this, 'ajax_clear_category_translations']);
+
         // Profile AJAX handlers
         add_action('wp_ajax_ewheel_get_profiles', [$this, 'ajax_get_profiles']);
         add_action('wp_ajax_ewheel_get_profile', [$this, 'ajax_get_profile']);
@@ -216,6 +224,10 @@ final class Ewheel_Importer
 
         // Queue management
         add_action('wp_ajax_ewheel_clear_queue', [$this, 'ajax_clear_queue']);
+        add_action('wp_ajax_ewheel_get_queue_status', [$this, 'ajax_get_queue_status']);
+
+        // Product count
+        add_action('wp_ajax_ewheel_get_product_count', [$this, 'ajax_get_product_count']);
 
         // Cron
         add_action('ewheel_importer_cron_sync', [$this, 'run_scheduled_sync']);
@@ -227,6 +239,16 @@ final class Ewheel_Importer
 
         // Action Scheduler Hook
         add_action('ewheel_importer_process_batch', [$this, 'process_batch_action'], 10, 4);
+
+        // Brand Taxonomy
+        add_action('init', [$this, 'register_product_brand_taxonomy'], 5);
+
+        // Product Badges (NEW/Discontinued)
+        add_action('woocommerce_before_shop_loop_item_title', [$this, 'render_product_badges'], 10);
+        add_action('woocommerce_before_single_product_summary', [$this, 'render_product_badges'], 10);
+
+        // Frontend CSS for badges
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_styles']);
     }
 
     /**
@@ -312,6 +334,63 @@ final class Ewheel_Importer
     }
 
     /**
+     * Enqueue frontend styles for product badges.
+     *
+     * @return void
+     */
+    public function enqueue_frontend_styles(): void
+    {
+        // Only load on WooCommerce pages
+        if (!function_exists('is_woocommerce') || (!is_woocommerce() && !is_product())) {
+            return;
+        }
+
+        // Inline CSS for badges (lightweight, no extra file needed)
+        $badge_css = '
+            .ewheel-badge {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                border-radius: 3px;
+                z-index: 10;
+                line-height: 1.2;
+                letter-spacing: 0.5px;
+            }
+            .ewheel-badge-new {
+                background: #27ae60;
+                color: #fff;
+            }
+            .ewheel-badge-discontinued {
+                background: #e74c3c;
+                color: #fff;
+            }
+            .woocommerce ul.products li.product,
+            .woocommerce-page ul.products li.product,
+            .single-product .product {
+                position: relative;
+            }
+            .single-product .ewheel-badge {
+                top: 15px;
+                left: 15px;
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            .ewheel-badge + .ewheel-badge {
+                top: 40px;
+            }
+            .single-product .ewheel-badge + .ewheel-badge {
+                top: 50px;
+            }
+        ';
+
+        wp_add_inline_style('woocommerce-general', $badge_css);
+    }
+
+    /**
      * Get JavaScript translation strings.
      *
      * @return array
@@ -351,6 +430,133 @@ final class Ewheel_Importer
     }
 
     /**
+     * Register AJAX error handler for debugging.
+     *
+     * Catches fatal errors during AJAX requests and logs them.
+     *
+     * @return void
+     */
+    public function register_ajax_error_handler(): void
+    {
+        // Only run during AJAX requests for this plugin
+        if (!wp_doing_ajax()) {
+            return;
+        }
+
+        $action = isset($_REQUEST['action']) ? sanitize_text_field($_REQUEST['action']) : '';
+
+        // Only handle our plugin's AJAX actions
+        if (strpos($action, 'ewheel_') !== 0) {
+            return;
+        }
+
+        // Log AJAX request start
+        error_log(sprintf(
+            '[Ewheel AJAX] Request started: action=%s, user=%d, file=%s',
+            $action,
+            get_current_user_id(),
+            __FILE__
+        ));
+
+        // Register shutdown handler to catch fatal errors
+        register_shutdown_function(function () use ($action) {
+            $error = error_get_last();
+            if ($error !== null && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR])) {
+                error_log(sprintf(
+                    '[Ewheel AJAX FATAL] action=%s, error=%s, file=%s, line=%d',
+                    $action,
+                    $error['message'],
+                    $error['file'],
+                    $error['line']
+                ));
+            }
+        });
+    }
+
+    /**
+     * Log AJAX error helper.
+     *
+     * @param string     $action    AJAX action name.
+     * @param \Throwable $exception Exception or Error.
+     * @return void
+     */
+    private function log_ajax_error(string $action, \Throwable $exception): void
+    {
+        error_log(sprintf(
+            '[Ewheel AJAX ERROR] action=%s, error=%s, file=%s, line=%d, trace=%s',
+            $action,
+            $exception->getMessage(),
+            $exception->getFile(),
+            $exception->getLine(),
+            $exception->getTraceAsString()
+        ));
+    }
+
+    /**
+     * Log sync diagnostics before starting a sync.
+     *
+     * @param int|null $profile_id Profile ID.
+     * @return void
+     */
+    private function log_sync_diagnostics(?int $profile_id = null): void
+    {
+        $diagnostics = [];
+
+        // Check Action Scheduler
+        $diagnostics['action_scheduler'] = function_exists('as_schedule_single_action') ? 'available' : 'MISSING';
+
+        // Check profile
+        $profile_repo = $this->container->get(\Trotibike\EwheelImporter\Repository\ProfileRepository::class);
+        if ($profile_id) {
+            $profile = $profile_repo->find($profile_id);
+            $diagnostics['profile'] = $profile ? $profile->get_name() : 'NOT FOUND (ID: ' . $profile_id . ')';
+        } else {
+            $profile = $profile_repo->find_default();
+            $diagnostics['profile'] = $profile ? 'Default: ' . $profile->get_name() : 'NO DEFAULT PROFILE';
+        }
+
+        // Check API configuration
+        $config = $this->container->get(\Trotibike\EwheelImporter\Config\Configuration::class);
+        $diagnostics['api_key'] = $config->get_api_key() ? 'configured (' . strlen($config->get_api_key()) . ' chars)' : 'NOT SET';
+
+        // Check pending actions
+        if (function_exists('as_get_scheduled_actions')) {
+            $pending = as_get_scheduled_actions([
+                'hook' => 'ewheel_importer_process_batch',
+                'status' => \ActionScheduler_Store::STATUS_PENDING,
+                'per_page' => 10,
+            ]);
+            $diagnostics['pending_batches'] = count($pending);
+
+            $running = as_get_scheduled_actions([
+                'hook' => 'ewheel_importer_process_batch',
+                'status' => \ActionScheduler_Store::STATUS_RUNNING,
+                'per_page' => 10,
+            ]);
+            $diagnostics['running_batches'] = count($running);
+
+            $failed = as_get_scheduled_actions([
+                'hook' => 'ewheel_importer_process_batch',
+                'status' => \ActionScheduler_Store::STATUS_FAILED,
+                'per_page' => 10,
+            ]);
+            $diagnostics['failed_batches'] = count($failed);
+        }
+
+        // Check current sync status
+        $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
+        $current_status = get_option($status_key, []);
+        $diagnostics['current_status'] = $current_status ? ($current_status['status'] ?? 'unknown') : 'none';
+
+        // Check lock
+        $lock_key = $profile_id ? 'ewheel_importer_sync_lock_' . $profile_id : 'ewheel_importer_sync_lock';
+        $lock = get_transient($lock_key);
+        $diagnostics['lock'] = $lock ? 'LOCKED (sync_id: ' . $lock . ')' : 'unlocked';
+
+        error_log('[Ewheel Sync Diagnostics] ' . wp_json_encode($diagnostics));
+    }
+
+    /**
      * Check and create DB tables if missing (Self-healing).
      *
      * @return void
@@ -358,10 +564,30 @@ final class Ewheel_Importer
     public function check_db_tables(): void
     {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'ewheel_translations';
 
-        // Lightweight check: if main table missing, re-run activation logic
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        // List of critical tables to check
+        $tables = [
+            $wpdb->prefix . 'ewheel_translations',
+            $wpdb->prefix . \Trotibike\EwheelImporter\Log\PersistentLogger::TABLE_NAME,
+            $wpdb->prefix . \Trotibike\EwheelImporter\Database\SchemaInstaller::SYNC_HISTORY_TABLE,
+            $wpdb->prefix . \Trotibike\EwheelImporter\Database\SchemaInstaller::PROFILES_TABLE,
+        ];
+
+        $missing = false;
+        foreach ($tables as $table) {
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table'") != $table) {
+                $missing = true;
+                break;
+            }
+        }
+
+        // Deep check for profile V2 migration
+        if (!$missing && \Trotibike\EwheelImporter\Database\SchemaInstaller::needs_migration()) {
+            $missing = true;
+        }
+
+        if ($missing) {
+            error_log('Ewheel Importer: Detected missing tables or pending migration. Running installer.');
             $this->activate();
         }
     }
@@ -373,6 +599,9 @@ final class Ewheel_Importer
      */
     public function ajax_run_sync(): void
     {
+        // Debug Log
+        error_log('Ewheel Importer: AJAX Run Sync Triggered');
+
         check_ajax_referer('ewheel_importer_nonce', 'nonce');
 
         if (!current_user_can('manage_woocommerce')) {
@@ -383,9 +612,26 @@ final class Ewheel_Importer
             $limit = isset($_POST['limit']) ? (int) $_POST['limit'] : 0;
             $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
 
+            error_log("Ewheel Importer: Starting Sync (Limit: $limit, Profile: " . ($profile_id ?? 'Default') . ")");
+
+            // Pre-sync diagnostics
+            $this->log_sync_diagnostics($profile_id);
+
             // Re-use launcher directly or through factory
             $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
             $sync_id = $launcher->start_sync($limit, $profile_id);
+
+            error_log("Ewheel Importer: Sync Scheduled with ID $sync_id");
+
+            // Verify the batch was actually scheduled
+            if (function_exists('as_get_scheduled_actions')) {
+                $pending = as_get_scheduled_actions([
+                    'hook' => 'ewheel_importer_process_batch',
+                    'status' => \ActionScheduler_Store::STATUS_PENDING,
+                    'per_page' => 1,
+                ]);
+                error_log("Ewheel Importer: Pending batch actions after schedule: " . count($pending));
+            }
 
             wp_send_json_success(
                 [
@@ -394,220 +640,12 @@ final class Ewheel_Importer
                     'profile_id' => $profile_id,
                 ]
             );
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            $this->log_ajax_error('ewheel_run_sync', $e);
             wp_send_json_error(['message' => $e->getMessage()]);
         }
     }
 
-    /**
-     * AJAX: Get sync status.
-     *
-     * @return void
-     */
-    public function ajax_get_sync_status(): void
-    {
-        check_ajax_referer('ewheel_importer_nonce', 'nonce');
-
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
-        }
-
-        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
-
-        // Get profile-specific or global status
-        $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
-        $status = get_option($status_key, []);
-
-        // Add human readable last update
-        if (!empty($status['last_update'])) {
-            $status['last_update_human'] = human_time_diff($status['last_update'], time()) . ' ago';
-        }
-
-        // Add profile last sync if available
-        if ($profile_id) {
-            try {
-                $profile_repo = $this->container->get(\Trotibike\EwheelImporter\Repository\ProfileRepository::class);
-                $profile = $profile_repo->find($profile_id);
-                if ($profile && $profile->get_last_sync()) {
-                    $status['last_sync'] = wp_date(
-                        get_option('date_format') . ' ' . get_option('time_format'),
-                        strtotime($profile->get_last_sync())
-                    );
-                }
-            } catch (\Exception $e) {
-                // Ignore errors
-            }
-        }
-
-        wp_send_json_success($status);
-    }
-
-    /**
-     * AJAX: Stop sync.
-     *
-     * @return void
-     */
-    public function ajax_stop_sync(): void
-    {
-        check_ajax_referer('ewheel_importer_nonce', 'nonce');
-
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
-        }
-
-        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field(wp_unslash($_POST['sync_id'])) : '';
-        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
-
-        // Determine status key based on profile
-        $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
-
-        if (empty($sync_id)) {
-            // Try to get running or pausing sync from status
-            $status = get_option($status_key, []);
-            $active_statuses = ['running', 'pausing'];
-            if (!empty($status['id']) && in_array($status['status'], $active_statuses, true)) {
-                $sync_id = $status['id'];
-            }
-        }
-
-        if (!empty($sync_id)) {
-            update_option('ewheel_importer_stop_sync_' . $sync_id, true);
-            // Also clear any pause flag so stop takes precedence
-            delete_option('ewheel_importer_pause_sync_' . $sync_id);
-
-            // Update status immediately to reflect stopping
-            $status = get_option($status_key, []);
-            if (isset($status['id']) && $status['id'] === $sync_id) {
-                $status['status'] = 'stopping';
-                update_option($status_key, $status);
-            }
-
-            wp_send_json_success(['message' => __('Sync stopping...', 'ewheel-importer')]);
-        } else {
-            wp_send_json_error(['message' => __('No running sync found.', 'ewheel-importer')]);
-        }
-    }
-
-    /**
-     * AJAX: Pause sync.
-     *
-     * @return void
-     */
-    public function ajax_pause_sync(): void
-    {
-        check_ajax_referer('ewheel_importer_nonce', 'nonce');
-
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
-        }
-
-        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field(wp_unslash($_POST['sync_id'])) : '';
-        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
-
-        // Determine status key based on profile
-        $status_key = $profile_id ? 'ewheel_importer_sync_status_' . $profile_id : 'ewheel_importer_sync_status';
-
-        if (empty($sync_id)) {
-            // Try to get running sync from status
-            $status = get_option($status_key, []);
-            if (!empty($status['id']) && $status['status'] === 'running') {
-                $sync_id = $status['id'];
-            }
-        }
-
-        if (!empty($sync_id)) {
-            update_option('ewheel_importer_pause_sync_' . $sync_id, true);
-
-            // Update status immediately to reflect pausing
-            $status = get_option($status_key, []);
-            if (isset($status['id']) && $status['id'] === $sync_id) {
-                $status['status'] = 'pausing';
-                update_option($status_key, $status);
-            }
-
-            wp_send_json_success(['message' => __('Sync pausing...', 'ewheel-importer')]);
-        } else {
-            wp_send_json_error(['message' => __('No running sync found.', 'ewheel-importer')]);
-        }
-    }
-
-    /**
-     * AJAX: Resume sync.
-     *
-     * @return void
-     */
-    public function ajax_resume_sync(): void
-    {
-        check_ajax_referer('ewheel_importer_nonce', 'nonce');
-
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
-        }
-
-        $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
-
-        try {
-            $sync_launcher = $this->container->get(SyncLauncher::class);
-            $sync_id = $sync_launcher->resume_sync($profile_id);
-
-            wp_send_json_success([
-                'message' => __('Sync resumed!', 'ewheel-importer'),
-                'sync_id' => $sync_id,
-            ]);
-        } catch (\Exception $e) {
-            wp_send_json_error(['message' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * AJAX: Test API connection.
-     *
-     * @return void
-     */
-    public function ajax_test_connection(): void
-    {
-        check_ajax_referer('ewheel_importer_nonce', 'nonce');
-
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
-        }
-
-        $api_key = $this->config->get_api_key();
-
-        if (empty($api_key)) {
-            wp_send_json_error(['message' => __('API key not configured', 'ewheel-importer')]);
-        }
-
-        try {
-            $client = ServiceFactory::create_api_client($api_key);
-            $categories = $client->get_categories(0, 1);
-
-            wp_send_json_success(['message' => __('Connection successful!', 'ewheel-importer')]);
-        } catch (\Exception $e) {
-            wp_send_json_error(['message' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * Run scheduled sync.
-     *
-     * @return void
-     */
-    public function run_scheduled_sync(): void
-    {
-        try {
-            $sync_service = ServiceFactory::create_sync_service();
-            $last_sync = $this->config->get_last_sync();
-
-            if ($last_sync) {
-                $sync_service->sync_incremental($last_sync);
-            } else {
-                $sync_service->sync_all();
-            }
-        } catch (\Exception $e) {
-            error_log('Ewheel Importer Scheduled Sync Error: ' . $e->getMessage());
-        }
-    }
 
     /**
      * Process a single batch via Action Scheduler.
@@ -620,19 +658,76 @@ final class Ewheel_Importer
      */
     public function process_batch_action(int $page, string $sync_id, string $since, ?int $profile_id = null): void
     {
+        error_log("=== EWHEEL BATCH START === Page: $page, SyncID: $sync_id, Profile: " . ($profile_id ?? 'Global'));
+
         try {
-            // WE NEED TO LOAD LOGGER!
+            error_log("[Ewheel] Step 1: Loading LiveLogger...");
             if (!class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
                 require_once EWHEEL_IMPORTER_PATH . 'includes/Log/LiveLogger.php';
             }
+            error_log("[Ewheel] Step 1: Done");
 
+            error_log("[Ewheel] Step 2: Building container...");
             $container = ServiceFactory::build_container();
-            $processor = $container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
+            error_log("[Ewheel] Step 2: Done");
 
+            error_log("[Ewheel] Step 3: Getting SyncBatchProcessor...");
+            $processor = $container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
+            error_log("[Ewheel] Step 3: Done");
+
+            error_log("[Ewheel] Step 4: Calling process_batch...");
             $processor->process_batch($page, $sync_id, $since, $profile_id);
+            error_log("[Ewheel] Step 4: Done - process_batch completed");
+
+        } catch (\Throwable $e) {
+            error_log('=== EWHEEL BATCH ERROR === ' . $e->getMessage());
+            error_log('File: ' . $e->getFile() . ':' . $e->getLine());
+            error_log('Trace: ' . $e->getTraceAsString());
+        }
+
+        error_log("=== EWHEEL BATCH END ===");
+    }
+
+    /**
+     * AJAX Test API Connection.
+     *
+     * @return void
+     */
+    public function ajax_test_connection(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        try {
+            $api_key = isset($_POST['api_key']) ? sanitize_text_field(wp_unslash($_POST['api_key'])) : '';
+
+            if (empty($api_key)) {
+                // Try from config if not provided
+                $config = $this->container->get(\Trotibike\EwheelImporter\Config\Configuration::class);
+                $api_key = $config->get_api_key();
+            }
+
+            if (empty($api_key)) {
+                throw new \Exception(__('API Key is missing', 'ewheel-importer'));
+            }
+
+            // Create a temporary client to test the key
+            $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
+
+            // Try to fetch 1 product to verify
+            $products = $client->get_products(0, 1);
+
+            if (is_array($products)) {
+                wp_send_json_success(['message' => __('Connection successful!', 'ewheel-importer')]);
+            } else {
+                throw new \Exception(__('Invalid response from API', 'ewheel-importer'));
+            }
 
         } catch (\Exception $e) {
-            error_log('Ewheel Importer Batch Action Error: ' . $e->getMessage());
+            wp_send_json_error(['message' => $e->getMessage()]);
         }
     }
 
@@ -698,6 +793,247 @@ final class Ewheel_Importer
             'history' => $history,
             'stats' => $stats,
         ]);
+    }
+
+    /**
+     * AJAX Get Sync Status.
+     *
+     * @return void
+     */
+    public function ajax_get_sync_status(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        // Get profile ID from request
+        $profile_id = isset($_REQUEST['profile_id']) ? absint($_REQUEST['profile_id']) : null;
+        if ($profile_id === 0) {
+            $profile_id = null;
+        }
+
+        // Build status key
+        $status_key = $profile_id
+            ? 'ewheel_importer_sync_status_' . $profile_id
+            : 'ewheel_importer_sync_status';
+
+        // Get stored status
+        $status = get_option($status_key, []);
+
+        // Check launcher for running state
+        $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+        $is_running = $launcher->is_sync_running($profile_id);
+        $is_paused = $launcher->is_sync_paused($profile_id);
+
+        // Build response with full details
+        $response = [
+            'status' => $is_running ? 'running' : ($is_paused ? 'paused' : ($status['status'] ?? 'idle')),
+            'is_running' => $is_running,
+            'is_paused' => $is_paused,
+            'id' => $status['id'] ?? null,
+            'processed' => $status['processed'] ?? 0,
+            'created' => $status['created'] ?? 0,
+            'updated' => $status['updated'] ?? 0,
+            'failed' => $status['failed'] ?? 0,
+            'page' => $status['page'] ?? 0,
+            'limit' => $status['limit'] ?? 0,
+            'type' => $status['type'] ?? 'full',
+            'started_at' => $status['started_at'] ?? null,
+            'last_update' => $status['last_update'] ?? null,
+            'completed_at' => $status['completed_at'] ?? null,
+            'batch_size' => $status['batch_size'] ?? 10,
+            'failure_count' => $status['failure_count'] ?? 0,
+        ];
+
+        // Add human-readable message
+        if ($is_running) {
+            $response['message'] = sprintf(
+                __('Sync running: %d processed (%d created, %d updated, %d failed)', 'ewheel-importer'),
+                $response['processed'],
+                $response['created'],
+                $response['updated'],
+                $response['failed']
+            );
+        } elseif ($is_paused) {
+            $response['message'] = __('Sync paused. Click Resume to continue.', 'ewheel-importer');
+        } elseif ($response['status'] === 'completed') {
+            $response['message'] = sprintf(
+                __('Sync completed: %d processed (%d created, %d updated)', 'ewheel-importer'),
+                $response['processed'],
+                $response['created'],
+                $response['updated']
+            );
+        } elseif ($response['status'] === 'failed') {
+            $response['message'] = $status['error'] ?? __('Sync failed.', 'ewheel-importer');
+        } elseif ($response['status'] === 'stopped') {
+            $response['message'] = __('Sync stopped by user.', 'ewheel-importer');
+        } else {
+            $response['message'] = __('Sync is idle.', 'ewheel-importer');
+        }
+
+        wp_send_json_success($response);
+    }
+
+    /**
+     * AJAX Pause Sync.
+     *
+     * @return void
+     */
+    public function ajax_pause_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+        $sync_id = $launcher->get_running_sync_id(); // Default profile
+
+        if ($sync_id) {
+            $status_key = 'ewheel_importer_sync_status'; // Default profile
+            $status = get_option($status_key, []);
+            if (!empty($status)) {
+                $status['status'] = 'paused';
+                $status['paused_at'] = time();
+                update_option($status_key, $status);
+
+                // Also set a specific pause flag
+                update_option('ewheel_importer_pause_sync_' . $sync_id, true);
+
+                wp_send_json_success(['message' => __('Sync paused.', 'ewheel-importer')]);
+            }
+        }
+
+        wp_send_json_error(['message' => __('No running sync found to pause.', 'ewheel-importer')]);
+    }
+
+    /**
+     * AJAX Resume Sync.
+     *
+     * @return void
+     */
+    public function ajax_resume_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        try {
+            $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+            $launcher->resume_sync();
+            wp_send_json_success(['message' => __('Sync resumed.', 'ewheel-importer')]);
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX Stop Sync.
+     *
+     * @return void
+     */
+    public function ajax_stop_sync(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+            return;
+        }
+
+        try {
+            $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+            $sync_id = $launcher->get_running_sync_id();
+
+            // Also check if paused
+            if (!$sync_id) {
+                $paused = $launcher->get_paused_sync();
+                if ($paused) {
+                    $sync_id = $paused['id'];
+                }
+            }
+
+            // Force clear even without sync_id - clean up any stuck state
+            // Clear status options for default profile
+            delete_option('ewheel_importer_sync_status');
+
+            // Clear the lock transient directly
+            delete_transient('ewheel_importer_sync_lock');
+
+            // Stop ALL running syncs in database history (critical for is_sync_running check)
+            \Trotibike\EwheelImporter\Sync\SyncHistoryManager::stop_all_running();
+
+            if ($sync_id) {
+                // Release lock via launcher (may fail if ownership mismatch, but we cleared it above)
+                $launcher->release_lock($sync_id);
+
+                // Clear pause flag
+                delete_option('ewheel_importer_pause_sync_' . $sync_id);
+
+                // Update history to stopped (already handled by stop_all_running above, but keep for explicit logging)
+                try {
+                    \Trotibike\EwheelImporter\Sync\SyncHistoryManager::fail($sync_id, 'Stopped by user');
+                } catch (\Throwable $t) {
+                    // Ignore history update failures
+                }
+            }
+
+            // Unschedule ALL pending batch actions
+            if (function_exists('as_unschedule_all_actions')) {
+                as_unschedule_all_actions('ewheel_importer_process_batch');
+            }
+
+            wp_send_json_success(['message' => __('Sync stopped.', 'ewheel-importer')]);
+            return;
+
+        } catch (\Throwable $e) {
+            // Even on error, try to force cleanup
+            delete_option('ewheel_importer_sync_status');
+            delete_transient('ewheel_importer_sync_lock');
+            if (function_exists('as_unschedule_all_actions')) {
+                as_unschedule_all_actions('ewheel_importer_process_batch');
+            }
+
+            wp_send_json_error(['message' => 'Stop failed: ' . $e->getMessage()]);
+            return;
+        }
+    }
+
+
+    /**
+     * AJAX Get Product Count.
+     *
+     * @return void
+     */
+    public function ajax_get_product_count(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        try {
+            // Create client
+            $config = $this->container->get(\Trotibike\EwheelImporter\Config\Configuration::class);
+            $client = $this->container->get(\Trotibike\EwheelImporter\Api\EwheelApiClient::class);
+
+            $filters = [];
+            $count = $client->get_product_count($filters);
+
+            wp_send_json_success([
+                'count' => $count,
+                'formatted' => number_format($count),
+            ]);
+
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -898,7 +1234,7 @@ final class Ewheel_Importer
                             $source_text = $raw_name['translations'][0]['value'];
                             $source_lang = $raw_name['translations'][0]['reference'] ?? 'es';
                         }
-                    // Simple format: {"es": "text", "en": "text"}
+                        // Simple format: {"es": "text", "en": "text"}
                     } elseif (!empty($raw_name['es'])) {
                         $source_text = $raw_name['es'];
                         $source_lang = 'es';
@@ -1029,6 +1365,9 @@ final class Ewheel_Importer
     /**
      * AJAX Get Current Category Mappings.
      *
+     * Returns categories with original_name, display_name, and translation_status.
+     * Display Priority: Manual override → Transient → Original name
+     *
      * @return void
      */
     public function ajax_get_category_mappings(): void
@@ -1049,6 +1388,10 @@ final class Ewheel_Importer
         // Merge (manual takes precedence)
         $all_mappings = array_merge($auto_mappings, $manual_mappings);
 
+        // Get translation caches
+        $transient_translations = get_transient('ewheel_category_translations') ?: [];
+        $manual_translation_overrides = get_option('ewheel_importer_category_translation_overrides', []);
+
         // Also fetch ewheel categories from API for profile dropdown
         $ewheel_categories = [];
         $api_key = $this->config->get_api_key();
@@ -1057,23 +1400,18 @@ final class Ewheel_Importer
                 $client = \Trotibike\EwheelImporter\Factory\ServiceFactory::create_api_client($api_key);
                 $categories = $client->get_all_categories();
 
-                // Use cache-first approach with batch query to avoid N+1 database calls
-                $translation_repo = new \Trotibike\EwheelImporter\Repository\TranslationRepository();
                 $target_lang = $this->config->get_target_language();
 
-                // First pass: extract source texts grouped by source language
-                $category_data = [];
-                $texts_by_lang = [];
+                // Build category list with original and display names
                 foreach ($categories as $cat) {
                     $reference = $cat['reference'] ?? ($cat['Reference'] ?? '');
                     $raw_name = $cat['name'] ?? ($cat['Name'] ?? '');
+                    $parent = $cat['parentReference'] ?? ($cat['ParentReference'] ?? null);
 
                     // Extract source text from multilingual structure
-                    // Handles both: {"translations": [{"reference": "es", "value": "..."}]} and {"es": "text"}
                     $source_text = '';
                     $source_lang = 'es';
                     if (is_array($raw_name)) {
-                        // Complex format: {"translations": [...]}
                         if (isset($raw_name['translations']) && is_array($raw_name['translations'])) {
                             foreach (['en', 'es'] as $preferred_lang) {
                                 foreach ($raw_name['translations'] as $t) {
@@ -1084,12 +1422,10 @@ final class Ewheel_Importer
                                     }
                                 }
                             }
-                            // Fallback to first available
                             if (empty($source_text) && !empty($raw_name['translations'][0]['value'])) {
                                 $source_text = $raw_name['translations'][0]['value'];
                                 $source_lang = $raw_name['translations'][0]['reference'] ?? 'es';
                             }
-                        // Simple format: {"es": "text", "en": "text"}
                         } elseif (!empty($raw_name['en'])) {
                             $source_text = $raw_name['en'];
                             $source_lang = 'en';
@@ -1109,34 +1445,30 @@ final class Ewheel_Importer
                         $source_text = $reference;
                     }
 
-                    $category_data[] = [
-                        'reference' => $reference,
-                        'source_text' => $source_text,
-                        'source_lang' => $source_lang,
-                    ];
-                    $texts_by_lang[$source_lang][] = $source_text;
-                }
+                    // Determine display name and translation status
+                    // Priority: Manual override → Transient → Original name
+                    $display_name = $source_text;
+                    $translation_status = 'original';
+                    $is_manually_edited = false;
 
-                // Batch query cache per source language (typically 1-2 queries total)
-                $cache_map = [];
-                foreach ($texts_by_lang as $src_lang => $texts) {
-                    $batch_result = $translation_repo->get_batch($texts, $src_lang, $target_lang);
-                    foreach ($texts as $text) {
-                        $hash = $translation_repo->generate_hash($text, $src_lang, $target_lang);
-                        if (isset($batch_result[$hash])) {
-                            $cache_map[$hash] = $batch_result[$hash];
-                        }
+                    if (isset($manual_translation_overrides[$reference])) {
+                        $display_name = $manual_translation_overrides[$reference];
+                        $translation_status = 'override';
+                        $is_manually_edited = true;
+                    } elseif (isset($transient_translations[$reference])) {
+                        $display_name = $transient_translations[$reference];
+                        $translation_status = 'translated';
                     }
-                }
-
-                // Second pass: build final list using cached translations
-                foreach ($category_data as $data) {
-                    $hash = $translation_repo->generate_hash($data['source_text'], $data['source_lang'], $target_lang);
-                    $name = $cache_map[$hash] ?? $data['source_text'];
 
                     $ewheel_categories[] = [
-                        'reference' => $data['reference'],
-                        'name' => $name,
+                        'reference' => $reference,
+                        'original_name' => $source_text,
+                        'display_name' => $display_name,
+                        'name' => $display_name, // For backwards compatibility
+                        'translation_status' => $translation_status,
+                        'is_manually_edited' => $is_manually_edited,
+                        'source_lang' => $source_lang,
+                        'parent' => $parent,
                     ];
                 }
             } catch (\Exception $e) {
@@ -1149,6 +1481,9 @@ final class Ewheel_Importer
             'auto_mappings' => $auto_mappings,
             'manual_mappings' => $manual_mappings,
             'ewheel_categories' => $ewheel_categories,
+            'has_translations' => !empty($transient_translations),
+            'translation_count' => count($transient_translations),
+            'override_count' => count($manual_translation_overrides),
         ]);
     }
 
@@ -1216,6 +1551,184 @@ final class Ewheel_Importer
         } catch (\Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * AJAX Translate Categories in Batch.
+     *
+     * Translates a batch of categories and saves to transient.
+     * Rate limiting: 15 categories per batch, 1s delay between batches (handled by JS).
+     *
+     * @return void
+     */
+    public function ajax_translate_categories(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $categories_json = isset($_POST['categories']) ? wp_unslash($_POST['categories']) : '';
+        $batch_index = isset($_POST['batch_index']) ? (int) $_POST['batch_index'] : 0;
+
+        if (empty($categories_json)) {
+            wp_send_json_error(['message' => __('No categories provided', 'ewheel-importer')]);
+        }
+
+        $categories = json_decode($categories_json, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($categories)) {
+            wp_send_json_error(['message' => __('Invalid categories data', 'ewheel-importer')]);
+        }
+
+        try {
+            $translator = $this->container->get(\Trotibike\EwheelImporter\Translation\TranslatorInterface::class);
+            $target_lang = $this->config->get_target_language();
+
+            // Get existing transient translations
+            $transient_translations = get_transient('ewheel_category_translations') ?: [];
+
+            $translated = [];
+            $errors = [];
+
+            foreach ($categories as $cat) {
+                $reference = $cat['reference'] ?? '';
+                $original_name = $cat['original_name'] ?? '';
+                $source_lang = $cat['source_lang'] ?? 'es';
+
+                if (empty($reference) || empty($original_name)) {
+                    continue;
+                }
+
+                // Skip if already in manual overrides
+                $manual_overrides = get_option('ewheel_importer_category_translation_overrides', []);
+                if (isset($manual_overrides[$reference])) {
+                    $translated[$reference] = $manual_overrides[$reference];
+                    continue;
+                }
+
+                // Skip if source language is same as target
+                if ($source_lang === $target_lang) {
+                    $translated[$reference] = $original_name;
+                    $transient_translations[$reference] = $original_name;
+                    continue;
+                }
+
+                try {
+                    $translation = $translator->translate($original_name, $source_lang, $target_lang);
+                    $translated[$reference] = $translation;
+                    $transient_translations[$reference] = $translation;
+                } catch (\Exception $e) {
+                    $errors[] = sprintf('%s: %s', $reference, $e->getMessage());
+                    // Keep original on error
+                    $translated[$reference] = $original_name;
+                }
+            }
+
+            // Save to transient with 7 days expiry
+            set_transient('ewheel_category_translations', $transient_translations, 7 * DAY_IN_SECONDS);
+
+            wp_send_json_success([
+                'batch_index' => $batch_index,
+                'translated' => $translated,
+                'translated_count' => count($translated),
+                'total_cached' => count($transient_translations),
+                'errors' => $errors,
+            ]);
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX Save Category Translation Override.
+     *
+     * Saves a manual translation edit to persistent option.
+     *
+     * @return void
+     */
+    public function ajax_save_category_translation(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $reference = isset($_POST['reference']) ? sanitize_text_field(wp_unslash($_POST['reference'])) : '';
+        $translation = isset($_POST['translation']) ? sanitize_text_field(wp_unslash($_POST['translation'])) : '';
+        $action_type = isset($_POST['action_type']) ? sanitize_text_field(wp_unslash($_POST['action_type'])) : 'save';
+
+        if (empty($reference)) {
+            wp_send_json_error(['message' => __('Category reference is required', 'ewheel-importer')]);
+        }
+
+        $overrides = get_option('ewheel_importer_category_translation_overrides', []);
+
+        if ($action_type === 'delete' || $action_type === 'revert') {
+            // Remove the manual override, revert to transient or original
+            unset($overrides[$reference]);
+            update_option('ewheel_importer_category_translation_overrides', $overrides);
+
+            // Get the display name after revert
+            $transient_translations = get_transient('ewheel_category_translations') ?: [];
+            $display_name = $transient_translations[$reference] ?? null;
+            $status = $display_name ? 'translated' : 'original';
+
+            wp_send_json_success([
+                'message' => __('Translation reverted', 'ewheel-importer'),
+                'reference' => $reference,
+                'display_name' => $display_name,
+                'translation_status' => $status,
+            ]);
+        } else {
+            // Save the manual override
+            if (empty($translation)) {
+                wp_send_json_error(['message' => __('Translation text is required', 'ewheel-importer')]);
+            }
+
+            $overrides[$reference] = $translation;
+            update_option('ewheel_importer_category_translation_overrides', $overrides);
+
+            wp_send_json_success([
+                'message' => __('Translation saved', 'ewheel-importer'),
+                'reference' => $reference,
+                'display_name' => $translation,
+                'translation_status' => 'override',
+            ]);
+        }
+    }
+
+    /**
+     * AJAX Clear Category Translations Cache.
+     *
+     * Clears the transient cache but preserves manual overrides.
+     *
+     * @return void
+     */
+    public function ajax_clear_category_translations(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        // Delete the transient cache
+        delete_transient('ewheel_category_translations');
+
+        // Get count of preserved manual overrides
+        $overrides = get_option('ewheel_importer_category_translation_overrides', []);
+        $override_count = count($overrides);
+
+        wp_send_json_success([
+            'message' => sprintf(
+                /* translators: %d: number of manual edits preserved */
+                __('Translation cache cleared. %d manual edits preserved.', 'ewheel-importer'),
+                $override_count
+            ),
+            'overrides_preserved' => $override_count,
+        ]);
     }
 
     /**
@@ -1465,6 +1978,81 @@ final class Ewheel_Importer
     }
 
     /**
+     * AJAX: Get Queue Status (Action Scheduler).
+     *
+     * @return void
+     */
+    public function ajax_get_queue_status(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        if (!function_exists('as_get_scheduled_actions')) {
+            wp_send_json_success([
+                'pending' => 0,
+                'failed' => 0,
+                'available' => false
+            ]);
+        }
+
+        // Check Action Scheduler queue for stuck batches
+        // Using 'ids' is faster and sufficient for counts
+        $pending_actions = as_get_scheduled_actions([
+            'hook' => 'ewheel_importer_process_batch',
+            'status' => \ActionScheduler_Store::STATUS_PENDING,
+        ], 'ids');
+
+        $failed_actions = as_get_scheduled_actions([
+            'hook' => 'ewheel_importer_process_batch',
+            'status' => \ActionScheduler_Store::STATUS_FAILED,
+        ], 'ids');
+
+        $pending_count = is_array($pending_actions) ? count($pending_actions) : 0;
+        $failed_count = is_array($failed_actions) ? count($failed_actions) : 0;
+
+        wp_send_json_success([
+            'pending' => $pending_count,
+            'failed' => $failed_count,
+            'available' => true,
+            'html' => $this->render_queue_status_html($pending_count, $failed_count)
+        ]);
+    }
+
+    /**
+     * Render Queue Status HTML.
+     * 
+     * @param int $pending
+     * @param int $failed
+     * @return string
+     */
+    private function render_queue_status_html(int $pending, int $failed): string
+    {
+        if ($pending === 0 && $failed === 0) {
+            return '';
+        }
+
+        ob_start();
+        ?>
+        <p class="description" style="margin-top: 10px; padding: 8px; background: #fff3cd; border-left: 4px solid #ffc107;">
+            <strong><?php esc_html_e('Queue Issue:', 'ewheel-importer'); ?></strong>
+            <?php echo esc_html($pending); ?>         <?php esc_html_e('pending', 'ewheel-importer'); ?>,
+            <?php echo esc_html($failed); ?>         <?php esc_html_e('failed batches', 'ewheel-importer'); ?>
+            <button type="button" id="ewheel-clear-queue" class="button button-small" style="margin-left: 10px;">
+                <?php esc_html_e('Clear Queue', 'ewheel-importer'); ?>
+            </button>
+            <a href="<?php echo esc_url(admin_url('tools.php?page=action-scheduler&s=ewheel_importer_process_batch')); ?>"
+                style="margin-left: 5px;">
+                <?php esc_html_e('View', 'ewheel-importer'); ?>
+            </a>
+        </p>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
      * AJAX: Clear Action Scheduler queue and sync locks.
      *
      * @return void
@@ -1477,11 +2065,22 @@ final class Ewheel_Importer
             wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
         }
 
-        // Clear all pending/failed ewheel batch actions
+        // Clear all pending ewheel batch actions
         as_unschedule_all_actions('ewheel_importer_process_batch');
 
-        // Clear sync status and locks
+        // Delete failed actions from Action Scheduler tables
         global $wpdb;
+        $table_name = $wpdb->prefix . 'actionscheduler_actions';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
+            $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$table_name} WHERE hook = %s AND status IN ('failed', 'canceled')",
+                    'ewheel_importer_process_batch'
+                )
+            );
+        }
+
+        // Clear sync status and locks
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_sync_status%'");
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_stop_sync%'");
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%ewheel_importer_pause_sync%'");
@@ -1600,6 +2199,67 @@ final class Ewheel_Importer
             'display' => __('Once Weekly', 'ewheel-importer'),
         ];
         return $schedules;
+    }
+
+    /**
+     * Register product_brand taxonomy for WooCommerce products.
+     *
+     * @return void
+     */
+    public function register_product_brand_taxonomy(): void
+    {
+        if (taxonomy_exists('product_brand')) {
+            return;
+        }
+
+        $labels = [
+            'name'              => __('Brands', 'ewheel-importer'),
+            'singular_name'     => __('Brand', 'ewheel-importer'),
+            'search_items'      => __('Search Brands', 'ewheel-importer'),
+            'all_items'         => __('All Brands', 'ewheel-importer'),
+            'parent_item'       => null,
+            'parent_item_colon' => null,
+            'edit_item'         => __('Edit Brand', 'ewheel-importer'),
+            'update_item'       => __('Update Brand', 'ewheel-importer'),
+            'add_new_item'      => __('Add New Brand', 'ewheel-importer'),
+            'new_item_name'     => __('New Brand Name', 'ewheel-importer'),
+            'menu_name'         => __('Brands', 'ewheel-importer'),
+        ];
+
+        register_taxonomy('product_brand', ['product'], [
+            'hierarchical'      => false,
+            'labels'            => $labels,
+            'show_ui'           => true,
+            'show_admin_column' => true,
+            'show_in_rest'      => true,
+            'query_var'         => true,
+            'rewrite'           => ['slug' => 'brand', 'with_front' => false],
+        ]);
+    }
+
+    /**
+     * Render product badges for NEW and Discontinued status.
+     *
+     * @return void
+     */
+    public function render_product_badges(): void
+    {
+        global $product;
+
+        if (!$product instanceof \WC_Product) {
+            return;
+        }
+
+        $is_new = $product->get_meta('_ewheel_new');
+        $is_obsolete = $product->get_meta('_ewheel_obsolete');
+
+        if ($is_new === '1' || $is_new === 'true' || $is_new === true) {
+            echo '<span class="ewheel-badge ewheel-badge-new">' . esc_html__('NOU', 'ewheel-importer') . '</span>';
+        }
+
+        if ($is_obsolete === '1' || $is_obsolete === 'true' || $is_obsolete === true) {
+            echo '<span class="ewheel-badge ewheel-badge-discontinued">' . esc_html__('Discontinuat', 'ewheel-importer') . '</span>';
+        }
     }
 
     /**

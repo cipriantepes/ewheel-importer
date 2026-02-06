@@ -359,9 +359,108 @@
     font-size: 12px;
 }
 
-.ewheel-category-map-table .mapping-status {
+.ewheel-category-map-table .mapping-status,
+.ewheel-category-map-table .translation-status {
     width: 100px;
     text-align: center;
+}
+
+/* Editable Translation Input */
+.ewheel-editable-translation {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.ewheel-translation-input {
+    flex: 1;
+    min-width: 150px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 13px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ewheel-translation-input:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.ewheel-translation-input:hover {
+    border-color: #999;
+}
+
+.ewheel-editable-translation .button-small {
+    padding: 0 6px;
+    min-height: 28px;
+    line-height: 26px;
+}
+
+.ewheel-editable-translation .button-small .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+.ewheel-save-translation {
+    background: #d4edda !important;
+    border-color: #28a745 !important;
+    color: #155724 !important;
+}
+
+.ewheel-save-translation:hover {
+    background: #c3e6cb !important;
+}
+
+.ewheel-revert-translation {
+    background: #fff3cd !important;
+    border-color: #ffc107 !important;
+    color: #856404 !important;
+}
+
+.ewheel-revert-translation:hover {
+    background: #ffeeba !important;
+}
+
+/* Category Actions Bar */
+.ewheel-category-actions {
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 15px;
+}
+
+.ewheel-category-actions .button .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1.5;
+}
+
+/* Translation Progress */
+#ewheel-category-translation-progress {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+#ewheel-category-translation-progress .ewheel-progress-container {
+    margin-bottom: 0;
+}
+
+/* Original Name Column */
+.ewheel-category-map-table .ewheel-original-name {
+    color: #646970;
+    font-style: italic;
+    max-width: 200px;
+}
+
+/* Spin animation for translate button */
+.ewheel-spin {
+    animation: ewheel-spin 1s linear infinite;
 }
 
 /* Loading Spinner */
@@ -390,6 +489,38 @@
 #ewheel_importer_openrouter_model optgroup {
     font-weight: 600;
     color: #1e1e1e;
+}
+
+/* Product Count in Quick Stats */
+.ewheel-stat-card.source {
+    background: #f0f6fc;
+    border-left-color: #2271b1;
+}
+
+.ewheel-refresh-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 5px;
+    vertical-align: middle;
+    color: #2271b1;
+    opacity: 0.7;
+}
+
+.ewheel-refresh-btn:hover {
+    opacity: 1;
+}
+
+.ewheel-refresh-btn .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+}
+
+.ewheel-refresh-btn .dashicons.ewheel-spin {
+    animation: ewheel-spin 1s linear infinite;
+    display: inline-block;
 }
 
 /* Profiles Tab */
@@ -540,4 +671,91 @@
     .ewheel-profiles-table td:nth-child(3) {
         display: none;
     }
+
+    /* Category mapping responsive */
+    .ewheel-category-actions {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .ewheel-category-actions .button {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+
+    .ewheel-category-map-table {
+        font-size: 12px;
+    }
+
+    /* Hide original name column on mobile */
+    .ewheel-category-map-table th:first-child,
+    .ewheel-category-map-table td:first-child {
+        display: none;
+    }
+
+    /* Hide reference column on mobile */
+    .ewheel-category-map-table th:nth-child(3),
+    .ewheel-category-map-table td:nth-child(3) {
+        display: none;
+    }
+
+    .ewheel-editable-translation {
+        flex-wrap: wrap;
+    }
+
+    .ewheel-translation-input {
+        width: 100%;
+        min-width: 100px;
+    }
+}
+
+/* ================================
+   Product Badges (NEW/Discontinued)
+   ================================ */
+.ewheel-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    border-radius: 3px;
+    z-index: 10;
+    line-height: 1.2;
+    letter-spacing: 0.5px;
+}
+
+.ewheel-badge-new {
+    background: #27ae60;
+    color: #fff;
+}
+
+.ewheel-badge-discontinued {
+    background: #e74c3c;
+    color: #fff;
+}
+
+/* Ensure product container has relative positioning for badges */
+.woocommerce ul.products li.product,
+.woocommerce-page ul.products li.product,
+.single-product .product {
+    position: relative;
+}
+
+/* Single product page badge positioning */
+.single-product .ewheel-badge {
+    top: 15px;
+    left: 15px;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* Multiple badges stacking */
+.ewheel-badge + .ewheel-badge {
+    top: 40px;
+}
+
+.single-product .ewheel-badge + .ewheel-badge {
+    top: 50px;
 }

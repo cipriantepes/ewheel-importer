@@ -148,7 +148,8 @@ class EwheelApiClient
 
         $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
 
-
+        // DEBUG: Log full request details
+        \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Request: POST {$url} page={$page}, params=" . wp_json_encode($body));
         \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
 
         try {
@@ -162,6 +163,8 @@ class EwheelApiClient
             $products = $this->extract_data($response);
 
             $count = count($products);
+            // DEBUG: Log response details
+            \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Response: HTTP success, products={$count}");
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
 
             if ($count === 0) {
@@ -213,6 +216,65 @@ class EwheelApiClient
             $page_size,
             ['NewerThan' => $since_date]
         );
+    }
+
+    /**
+     * Get total product count from the API.
+     *
+     * Makes a minimal request to fetch the total count without loading all data.
+     *
+     * @param array $filters Optional filters.
+     * @return int The total product count.
+     */
+    public function get_product_count(array $filters = []): int
+    {
+        $body = array_merge(
+            [
+                'Page' => 0,
+                'PageSize' => 1, // Minimal page size
+            ],
+            $filters
+        );
+
+        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
+
+        try {
+            $response = $this->http_client->post(
+                $url,
+                $body,
+                $this->get_headers()
+            );
+
+            // Try to extract total count from response metadata
+            // Common API patterns: TotalCount, Total, Count, totalCount, total, count
+            $total = $response['TotalCount']
+                ?? $response['totalCount']
+                ?? $response['Total']
+                ?? $response['total']
+                ?? $response['Count']
+                ?? $response['count']
+                ?? $response['TotalRecords']
+                ?? $response['totalRecords']
+                ?? null;
+
+            if ($total !== null) {
+                return (int) $total;
+            }
+
+            // Fallback: count actual products (less reliable for total)
+            $data = $this->extract_data($response);
+
+            // If we got a full page, there might be more - estimate based on MAX_PAGES
+            if (count($data) === 1) {
+                // We can't determine total, return -1 to indicate unknown
+                return -1;
+            }
+
+            return count($data);
+        } catch (\Exception $e) {
+            \Trotibike\EwheelImporter\Log\LiveLogger::log("Failed to get product count: " . $e->getMessage(), 'error');
+            return -1;
+        }
     }
 
     /**

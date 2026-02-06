@@ -195,25 +195,47 @@ class SyncBatchProcessor
                 return;
             }
 
-            // On first batch, sync categories automatically to ensure mapping exists
+            // On first batch, do deferred initialization and sync categories
             if ($page === 0) {
+                error_log("[Ewheel Batch] Page 0 - starting first batch initialization");
+
+                // Determine sync type from status
+                $sync_type = ($status['type'] ?? 'full') === 'incremental'
+                    ? SyncHistoryManager::TYPE_INCREMENTAL
+                    : SyncHistoryManager::TYPE_FULL;
+
+                // Create history record (deferred from start_sync for faster response)
+                SyncHistoryManager::create($sync_id, $sync_type, $profile_id);
+
+                // Log sync start
+                $sync_label = $sync_type === SyncHistoryManager::TYPE_INCREMENTAL
+                    ? sprintf('Incremental sync started (since: %s, Profile: %s)', $status['since'] ?? 'unknown', $profile_config->get_profile_name())
+                    : sprintf('Sync started (Profile: %s)', $profile_config->get_profile_name());
+                PersistentLogger::info($sync_label, null, $sync_id, $profile_id);
+
+                // Sync categories before products
+                error_log("[Ewheel Batch] Syncing categories before products...");
                 PersistentLogger::info('Syncing categories before products...', null, $sync_id, $profile_id);
                 try {
                     $category_map = $this->woo_sync->sync_categories();
+                    error_log("[Ewheel Batch] Categories synced: " . count($category_map) . " categories");
                     PersistentLogger::info(
                         sprintf('Categories synced: %d categories created/updated', count($category_map)),
                         null,
                         $sync_id,
                         $profile_id
                     );
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
+                    error_log("[Ewheel Batch] Category sync exception: " . $e->getMessage());
                     PersistentLogger::error('Failed to sync categories: ' . $e->getMessage(), null, $sync_id, $profile_id);
                     // Continue with product sync anyway - categories might already exist
                 }
+                error_log("[Ewheel Batch] Category sync complete, proceeding to products");
             }
 
             // Build filters from profile
             $api_filters = $profile_config->get_api_filters();
+            error_log("[Ewheel Batch] Built API filters: " . wp_json_encode($api_filters));
 
             // Add incremental filter if provided
             if (!empty($since)) {
@@ -226,6 +248,7 @@ class SyncBatchProcessor
             }
 
             // DEBUG: Log API filters and call
+            error_log("[Ewheel Batch] Calling API get_products page={$page}, batch_size={$batch_size}, filters=" . wp_json_encode($api_filters));
             PersistentLogger::info("[DEBUG] API filters: " . wp_json_encode($api_filters), null, $sync_id, $profile_id);
             PersistentLogger::info("[DEBUG] Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
 
@@ -233,9 +256,11 @@ class SyncBatchProcessor
             $products = $this->api_client->get_products($page, $batch_size, $api_filters);
 
             // DEBUG: Log API response
+            error_log("[Ewheel Batch] API returned " . count($products) . " products");
             PersistentLogger::info("[DEBUG] API returned " . count($products) . " products", null, $sync_id, $profile_id);
 
             if (empty($products)) {
+                error_log("[Ewheel Batch] No products from API - ending sync");
                 PersistentLogger::info("[DEBUG] No products from API - ending sync", null, $sync_id, $profile_id);
                 PersistentLogger::info(
                     sprintf('No products returned from API for profile "%s". Batch complete.', $profile->get_name()),
@@ -247,6 +272,7 @@ class SyncBatchProcessor
                 return;
             }
 
+            error_log("[Ewheel Batch] Processing batch for profile '{$profile->get_name()}'. Page: {$page}. Products found: " . count($products));
             PersistentLogger::info(
                 sprintf('Processing batch for profile "%s". Page: %d. Products found: %d', $profile->get_name(), $page, count($products)),
                 null,
@@ -258,16 +284,19 @@ class SyncBatchProcessor
             if ($limit > 0 && ($processed + count($products)) > $limit) {
                 $remaining = $limit - $processed;
                 $products = array_slice($products, 0, $remaining);
+                error_log("[Ewheel Batch] Limit reached. Truncating batch to $remaining items.");
                 PersistentLogger::info("Limit reached. Truncating batch to $remaining items.", null, $sync_id, $profile_id);
             }
 
             // DEBUG: Before WooCommerceSync call
+            error_log("[Ewheel Batch] Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products");
             PersistentLogger::info("[DEBUG] Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products", null, $sync_id, $profile_id);
 
             // Process products with profile configuration
             $batch_result = $this->woo_sync->process_ewheel_products_batch($products, $profile_config);
 
             // DEBUG: After WooCommerceSync call
+            error_log("[Ewheel Batch] WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}");
             PersistentLogger::info("[DEBUG] WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}", null, $sync_id, $profile_id);
 
             // Update progress with detailed counts

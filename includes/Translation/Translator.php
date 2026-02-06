@@ -78,6 +78,24 @@ class Translator
             return '';
         }
 
+        // Skip translation if EWHEEL_SKIP_TRANSLATION constant is defined and true
+        if (defined('EWHEEL_SKIP_TRANSLATION') && EWHEEL_SKIP_TRANSLATION) {
+            return $text;
+        }
+
+        // Normalize source language to lowercase
+        $source_lang = strtolower(trim($source_lang));
+
+        // Default to 'es' if source lang is invalid or 'auto'
+        if (empty($source_lang) || $source_lang === 'auto' || strlen($source_lang) > 5) {
+            $source_lang = 'es';
+        }
+
+        // Skip translation if source equals target
+        if ($source_lang === $this->target_language) {
+            return $text;
+        }
+
         // Check persistent cache
         $cached = $this->repository->get($text, $source_lang, $this->target_language);
         if ($cached !== null) {
@@ -189,6 +207,11 @@ class Translator
     {
         if (empty($texts)) {
             return [];
+        }
+
+        // Skip translation if EWHEEL_SKIP_TRANSLATION constant is defined and true
+        if (defined('EWHEEL_SKIP_TRANSLATION') && EWHEEL_SKIP_TRANSLATION) {
+            return array_values($texts);
         }
 
         // Check persistent cache first
