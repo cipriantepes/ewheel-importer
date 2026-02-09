@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.0.1
+ * Version:           2.0.2
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.0.1');
+define('EWHEEL_IMPORTER_VERSION', '2.0.2');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -453,14 +453,6 @@ final class Ewheel_Importer
         if (strpos($action, 'ewheel_') !== 0) {
             return;
         }
-
-        // Log AJAX request start
-        error_log(sprintf(
-            '[Ewheel AJAX] Request started: action=%s, user=%d, file=%s',
-            $action,
-            get_current_user_id(),
-            __FILE__
-        ));
 
         // Register shutdown handler to catch fatal errors
         register_shutdown_function(function () use ($action) {

@@ -352,6 +352,9 @@
             this.startLogPolling();
 
             this.pollInterval = setInterval(function () {
+                // Skip if a status request is already in flight
+                if (self._statusPending) return;
+                self._statusPending = true;
                 $.ajax({
                     url: ewheelImporter.ajaxUrl,
                     type: 'POST',
@@ -360,6 +363,7 @@
                         nonce: ewheelImporter.nonce
                     },
                     success: function (response) {
+                        self._statusPending = false;
                         // Reset error counter on success
                         self.statusErrorCount = 0;
 
@@ -422,6 +426,7 @@
                         }
                     },
                     error: function (xhr, status, error) {
+                        self._statusPending = false;
                         self.statusErrorCount++;
                         console.warn('[Ewheel] Status poll error (' + self.statusErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
 
@@ -434,7 +439,7 @@
                         }
                     }
                 });
-            }, 3000);
+            }, 5000);
         },
 
         startLogPolling: function () {
@@ -451,10 +456,10 @@
             // Fetch immediately
             this.fetchLogs();
 
-            // Then poll every 2 seconds
+            // Poll every 5 seconds (staggered from status poll to reduce server load)
             this.logPollInterval = setInterval(function () {
                 self.fetchLogs();
-            }, 2000);
+            }, 5000);
         },
 
         stopLogPolling: function () {
@@ -739,7 +744,7 @@
                         }
                     }
                 });
-            }, 3000);
+            }, 5000);
         },
 
         testConnection: function (e) {
