@@ -138,13 +138,15 @@ class EwheelApiClient
      */
     public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
     {
-        $body = array_merge(
-            [
-                'Page' => $page,
-                'PageSize' => $page_size,
-            ],
-            $filters
-        );
+        $body = [
+            'productsFilter' => array_merge(
+                [
+                    'Page' => $page,
+                    'PageSize' => $page_size,
+                ],
+                $filters
+            ),
+        ];
 
         $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
 
@@ -228,13 +230,15 @@ class EwheelApiClient
      */
     public function get_product_count(array $filters = []): int
     {
-        $body = array_merge(
-            [
-                'Page' => 0,
-                'PageSize' => 1, // Minimal page size
-            ],
-            $filters
-        );
+        $body = [
+            'productsFilter' => array_merge(
+                [
+                    'Page' => 0,
+                    'PageSize' => 1, // Minimal page size
+                ],
+                $filters
+            ),
+        ];
 
         $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
 
