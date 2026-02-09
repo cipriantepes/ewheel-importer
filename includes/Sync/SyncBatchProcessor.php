@@ -164,9 +164,8 @@ class SyncBatchProcessor
 
             $profile = $profile_config->get_profile();
 
-            // DEBUG: Log batch start with all parameters
-            PersistentLogger::info("[DEBUG] Batch start - page: {$page}, sync_id: {$sync_id}, profile_id: " . ($profile_id ?: 'none'), null, $sync_id, $profile_id);
-            PersistentLogger::info("[DEBUG] Profile: " . $profile_config->get_profile_name() . ", variation_mode: " . $profile_config->get_variation_mode(), null, $sync_id, $profile_id);
+            PersistentLogger::info("Batch start - page: {$page}, sync_id: {$sync_id}, profile_id: " . ($profile_id ?: 'none'), null, $sync_id, $profile_id);
+            PersistentLogger::info("Profile: " . $profile_config->get_profile_name() . ", variation_mode: " . $profile_config->get_variation_mode(), null, $sync_id, $profile_id);
 
             // Check status for limit and adaptive batch size
             $status = get_option($this->get_status_key($profile_id), []);
@@ -197,8 +196,6 @@ class SyncBatchProcessor
 
             // On first batch, do deferred initialization and sync categories
             if ($page === 0) {
-                error_log("[Ewheel Batch] Page 0 - starting first batch initialization");
-
                 // Determine sync type from status
                 $sync_type = ($status['type'] ?? 'full') === 'incremental'
                     ? SyncHistoryManager::TYPE_INCREMENTAL
@@ -214,11 +211,9 @@ class SyncBatchProcessor
                 PersistentLogger::info($sync_label, null, $sync_id, $profile_id);
 
                 // Sync categories before products
-                error_log("[Ewheel Batch] Syncing categories before products...");
                 PersistentLogger::info('Syncing categories before products...', null, $sync_id, $profile_id);
                 try {
                     $category_map = $this->woo_sync->sync_categories();
-                    error_log("[Ewheel Batch] Categories synced: " . count($category_map) . " categories");
                     PersistentLogger::info(
                         sprintf('Categories synced: %d categories created/updated', count($category_map)),
                         null,
@@ -226,16 +221,13 @@ class SyncBatchProcessor
                         $profile_id
                     );
                 } catch (\Throwable $e) {
-                    error_log("[Ewheel Batch] Category sync exception: " . $e->getMessage());
                     PersistentLogger::error('Failed to sync categories: ' . $e->getMessage(), null, $sync_id, $profile_id);
                     // Continue with product sync anyway - categories might already exist
                 }
-                error_log("[Ewheel Batch] Category sync complete, proceeding to products");
             }
 
             // Build filters from profile
             $api_filters = $profile_config->get_api_filters();
-            error_log("[Ewheel Batch] Built API filters: " . wp_json_encode($api_filters));
 
             // Add incremental filter if provided
             if (!empty($since)) {
@@ -247,21 +239,16 @@ class SyncBatchProcessor
                 $api_filters['Active'] = 1;
             }
 
-            // DEBUG: Log API filters and call
-            error_log("[Ewheel Batch] Calling API get_products page={$page}, batch_size={$batch_size}, filters=" . wp_json_encode($api_filters));
-            PersistentLogger::info("[DEBUG] API filters: " . wp_json_encode($api_filters), null, $sync_id, $profile_id);
-            PersistentLogger::info("[DEBUG] Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
+            PersistentLogger::info("API filters: " . wp_json_encode($api_filters), null, $sync_id, $profile_id);
+            PersistentLogger::info("Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
 
             // Fetch products for this page with adaptive batch size
             $products = $this->api_client->get_products($page, $batch_size, $api_filters);
 
-            // DEBUG: Log API response
-            error_log("[Ewheel Batch] API returned " . count($products) . " products");
-            PersistentLogger::info("[DEBUG] API returned " . count($products) . " products", null, $sync_id, $profile_id);
+            PersistentLogger::info("API returned " . count($products) . " products", null, $sync_id, $profile_id);
 
             if (empty($products)) {
-                error_log("[Ewheel Batch] No products from API - ending sync");
-                PersistentLogger::info("[DEBUG] No products from API - ending sync", null, $sync_id, $profile_id);
+                PersistentLogger::info("No products from API - ending sync", null, $sync_id, $profile_id);
                 PersistentLogger::info(
                     sprintf('No products returned from API for profile "%s". Batch complete.', $profile->get_name()),
                     null,
@@ -272,7 +259,6 @@ class SyncBatchProcessor
                 return;
             }
 
-            error_log("[Ewheel Batch] Processing batch for profile '{$profile->get_name()}'. Page: {$page}. Products found: " . count($products));
             PersistentLogger::info(
                 sprintf('Processing batch for profile "%s". Page: %d. Products found: %d', $profile->get_name(), $page, count($products)),
                 null,
@@ -284,20 +270,40 @@ class SyncBatchProcessor
             if ($limit > 0 && ($processed + count($products)) > $limit) {
                 $remaining = $limit - $processed;
                 $products = array_slice($products, 0, $remaining);
-                error_log("[Ewheel Batch] Limit reached. Truncating batch to $remaining items.");
                 PersistentLogger::info("Limit reached. Truncating batch to $remaining items.", null, $sync_id, $profile_id);
             }
 
-            // DEBUG: Before WooCommerceSync call
-            error_log("[Ewheel Batch] Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products");
-            PersistentLogger::info("[DEBUG] Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products", null, $sync_id, $profile_id);
+            PersistentLogger::info("Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products", null, $sync_id, $profile_id);
 
             // Process products with profile configuration
             $batch_result = $this->woo_sync->process_ewheel_products_batch($products, $profile_config);
 
-            // DEBUG: After WooCommerceSync call
-            error_log("[Ewheel Batch] WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}");
-            PersistentLogger::info("[DEBUG] WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}", null, $sync_id, $profile_id);
+            PersistentLogger::info("WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}", null, $sync_id, $profile_id);
+
+            // Collect API references for lifecycle reconciliation (full syncs only)
+            if (empty($since)) {
+                $refs = [];
+                foreach ($products as $p) {
+                    $p_lower = array_change_key_case($p, CASE_LOWER);
+                    $ref = $p_lower['reference'] ?? '';
+                    if (!empty($ref)) {
+                        $refs[] = $ref;
+                    }
+                    // Also collect variant references
+                    foreach (($p_lower['variants'] ?? []) as $v) {
+                        $v_lower = array_change_key_case($v, CASE_LOWER);
+                        $vref = $v_lower['reference'] ?? '';
+                        if (!empty($vref)) {
+                            $refs[] = $vref;
+                        }
+                    }
+                }
+                if (!empty($refs)) {
+                    $existing_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
+                    $existing_refs = array_merge($existing_refs, $refs);
+                    update_option('ewheel_sync_active_refs_' . $sync_id, $existing_refs, false);
+                }
+            }
 
             // Update progress with detailed counts
             $this->update_progress($sync_id, $page, count($products), $batch_result, $profile_id);
@@ -343,7 +349,6 @@ class SyncBatchProcessor
             }
 
         } catch (\Exception $e) {
-            error_log("Ewheel Importer Batch Error (Page $page): " . $e->getMessage());
 
             // Get current batch metrics for adaptive retry
             $status = get_option($this->get_status_key($profile_id), []);
@@ -405,6 +410,94 @@ class SyncBatchProcessor
     {
         $status = get_option($this->get_status_key($profile_id), []);
         if (isset($status['id']) && $status['id'] === $sync_id) {
+            // Schedule stock sync before marking as completed
+            $status['status'] = 'syncing_stock';
+            $status['last_update'] = time();
+            update_option($this->get_status_key($profile_id), $status);
+
+            PersistentLogger::info('Product sync finished. Scheduling stock synchronization...', null, $sync_id, $profile_id);
+
+            as_schedule_single_action(
+                time() + 2,
+                'ewheel_importer_sync_stock',
+                [
+                    'sync_id' => $sync_id,
+                    'profile_id' => $profile_id,
+                ]
+            );
+        }
+    }
+
+    /**
+     * Process stock synchronization after product sync completes.
+     *
+     * Also runs product lifecycle reconciliation for full syncs.
+     *
+     * @param string   $sync_id    Sync ID.
+     * @param int|null $profile_id Profile ID.
+     * @return void
+     */
+    public function process_stock_sync(string $sync_id, ?int $profile_id = null): void
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        if (!isset($status['id']) || $status['id'] !== $sync_id) {
+            return;
+        }
+
+        PersistentLogger::info('Starting stock synchronization...', null, $sync_id, $profile_id);
+
+        try {
+            $stock_result = $this->woo_sync->sync_stock();
+
+            PersistentLogger::success(
+                sprintf('Stock sync complete: %d updated, %d skipped',
+                    $stock_result['updated'], $stock_result['skipped']),
+                null, $sync_id, $profile_id
+            );
+        } catch (\Throwable $e) {
+            PersistentLogger::error(
+                'Stock sync failed: ' . $e->getMessage(),
+                null, $sync_id, $profile_id
+            );
+        }
+
+        // Run lifecycle reconciliation for full syncs only
+        $sync_type = $status['type'] ?? 'full';
+        if ($sync_type === 'full') {
+            $active_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
+            if (!empty($active_refs)) {
+                try {
+                    $reconcile_result = $this->woo_sync->reconcile_products($active_refs);
+                    PersistentLogger::info(
+                        sprintf('Lifecycle reconciliation: %d unpublished, %d checked',
+                            $reconcile_result['unpublished'], $reconcile_result['checked']),
+                        null, $sync_id, $profile_id
+                    );
+                } catch (\Throwable $e) {
+                    PersistentLogger::error(
+                        'Lifecycle reconciliation failed: ' . $e->getMessage(),
+                        null, $sync_id, $profile_id
+                    );
+                }
+            }
+            // Clean up temporary option
+            delete_option('ewheel_sync_active_refs_' . $sync_id);
+        }
+
+        // Now mark as fully completed
+        $this->complete_sync($sync_id, $profile_id);
+    }
+
+    /**
+     * Complete sync — update status, timestamps, history, and release lock.
+     *
+     * @param string   $sync_id    Unique sync ID.
+     * @param int|null $profile_id Profile ID.
+     */
+    private function complete_sync(string $sync_id, ?int $profile_id = null): void
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        if (isset($status['id']) && $status['id'] === $sync_id) {
             $status['status'] = 'completed';
             $status['completed_at'] = time();
             update_option($this->get_status_key($profile_id), $status);
@@ -422,6 +515,8 @@ class SyncBatchProcessor
 
             // Release lock
             delete_transient($this->get_lock_key($profile_id));
+
+            PersistentLogger::success('Sync fully completed.', null, $sync_id, $profile_id);
         }
     }
 

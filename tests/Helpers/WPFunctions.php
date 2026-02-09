@@ -108,6 +108,35 @@ if ( ! function_exists( 'delete_transient' ) ) {
     }
 }
 
+if ( ! function_exists( 'sanitize_title' ) ) {
+    function sanitize_title( $title, $fallback_title = '', $context = 'save' ) {
+        $title = strip_tags( $title );
+        $title = preg_replace( '/[^a-z0-9\s\-_]/i', '', $title );
+        $title = strtolower( trim( $title ) );
+        $title = preg_replace( '/[\s\-]+/', '-', $title );
+        $title = trim( $title, '-' );
+        return empty( $title ) ? $fallback_title : $title;
+    }
+}
+
+if ( ! function_exists( '_n' ) ) {
+    function _n( $single, $plural, $number, $domain = 'default' ) {
+        return $number === 1 ? $single : $plural;
+    }
+}
+
+if ( ! function_exists( 'absint' ) ) {
+    function absint( $maybeint ) {
+        return abs( (int) $maybeint );
+    }
+}
+
+if ( ! function_exists( 'wp_rand' ) ) {
+    function wp_rand( $min = 0, $max = 0 ) {
+        return random_int( $min, $max );
+    }
+}
+
 if ( ! function_exists( 'current_time' ) ) {
     function current_time( $type, $gmt = 0 ) {
         switch ( $type ) {

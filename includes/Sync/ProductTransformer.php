@@ -86,16 +86,14 @@ class ProductTransformer
             // Handle case sensitivity (API returns lowercase, code might expect PascalCase)
             $p = array_change_key_case($ewheel_product, CASE_LOWER);
 
-            // DEBUG: Log transform start
             $ref = $p['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
-            PersistentLogger::info("[DEBUG] ProductTransformer::transform - reference: {$ref}");
+            PersistentLogger::info("ProductTransformer::transform - reference: {$ref}");
 
             $has_variants = !empty($p['variants']);
             $use_variable_mode = $this->config->is_variable_product_mode();
 
-            // DEBUG: Log transform mode
             $mode = $has_variants ? ($use_variable_mode ? 'variable' : 'simple-expanded') : 'simple';
-            PersistentLogger::info("[DEBUG] Transform mode: {$mode}");
+            PersistentLogger::info("Transform mode: {$mode}");
 
             // If simple mode and has variants, expand to multiple simple products
             if ($has_variants && !$use_variable_mode) {
@@ -157,13 +155,12 @@ class ProductTransformer
                 'meta_data' => $this->get_meta_data($ewheel_product),
             ];
 
-            // DEBUG: Log before name translation
             $name_val = $this->get_mapped_value($p, 'name', 'name');
-            PersistentLogger::info("[DEBUG] name_val type: " . gettype($name_val) . ", value: " . (is_array($name_val) ? json_encode($name_val) : substr((string) $name_val, 0, 100)));
+            PersistentLogger::info("name_val type: " . gettype($name_val) . ", value: " . (is_array($name_val) ? json_encode($name_val) : substr((string) $name_val, 0, 100)));
 
             if ($name_val !== null) {
                 $woo_product['name'] = $this->translate_field($name_val);
-                PersistentLogger::info("[DEBUG] Translated name: " . substr($woo_product['name'], 0, 100));
+                PersistentLogger::info("Translated name: " . substr($woo_product['name'], 0, 100));
             }
 
             // Description: Use the translated NAME field as the product description
@@ -269,7 +266,7 @@ class ProductTransformer
 
             // Add variations for variable products
             if ($has_variants) {
-                PersistentLogger::info("[DEBUG] Processing " . count($p['variants']) . " variants");
+                PersistentLogger::info("Processing " . count($p['variants']) . " variants");
                 $woo_product['variations'] = $this->transform_variations($p['variants']);
                 // For variable products, variation attributes take precedence
                 $variation_attrs = $this->get_variation_attributes($ewheel_product);
@@ -277,14 +274,12 @@ class ProductTransformer
                 $woo_product['attributes'] = $this->merge_attributes($variation_attrs, $pipe_woo_attributes);
             }
 
-            // DEBUG: Log transform output
-            PersistentLogger::info("[DEBUG] Transform output: 1 product, SKU: " . ($woo_product['sku'] ?? 'none') . ", name: " . substr($woo_product['name'] ?? 'no-name', 0, 50));
+            PersistentLogger::info("Transform output: 1 product, SKU: " . ($woo_product['sku'] ?? 'none') . ", name: " . substr($woo_product['name'] ?? 'no-name', 0, 50));
 
             return [$woo_product];
         } catch (\Throwable $e) {
             $ref = $ewheel_product['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
-            PersistentLogger::error("[DEBUG] Transform EXCEPTION for {$ref}: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
-            error_log("ProductTransformer::transform exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            PersistentLogger::error("Transform EXCEPTION for {$ref}: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
             return [];
         }
     }
@@ -452,9 +447,16 @@ class ProductTransformer
                 ];
             }
 
-            $price_val = $this->get_mapped_value($v, 'price', 'net');
-            if ($price_val !== null) {
-                $woo_product['regular_price'] = $this->convert_price($price_val);
+            $net_price = $this->get_mapped_value($v, 'price', 'net');
+            if ($net_price !== null) {
+                $woo_product['regular_price'] = $this->convert_price($net_price);
+
+                // Check for sale price (comparePrice)
+                $compare_price = $v['compareprice'] ?? ($variant['ComparePrice'] ?? ($v['comparePrice'] ?? null));
+                if ($compare_price !== null && (float) $compare_price > 0 && (float) $compare_price > (float) $net_price) {
+                    $woo_product['regular_price'] = $this->convert_price($compare_price);
+                    $woo_product['sale_price'] = $this->convert_price($net_price);
+                }
             }
 
             $images_val = $this->get_mapped_value($p, 'image', 'images');
@@ -661,7 +663,7 @@ class ProductTransformer
                 // Simple format - use normalized keys
                 return $this->translator->translate_multilingual($normalized);
             } catch (\Throwable $e) {
-                PersistentLogger::error("[DEBUG] translate_text exception: " . $e->getMessage());
+                PersistentLogger::error("translate_text exception: " . $e->getMessage());
                 // Fallback: try to extract any string value
                 foreach ($text as $value) {
                     if (is_string($value) && !empty($value)) {
@@ -727,30 +729,14 @@ class ProductTransformer
     {
         $woo_categories = [];
 
-        // Debug: Log incoming category refs and map status
-        if (empty($this->category_map)) {
-            error_log('Ewheel Importer DEBUG (transform_categories): Category map is EMPTY');
-        }
-
         foreach ($category_refs as $item) {
             // Handle object structure
             $ref = is_array($item) ? ($item['reference'] ?? ($item['Reference'] ?? '')) : $item;
-
-            // Debug: Log each category reference
-            error_log('Ewheel Importer DEBUG (transform_categories): Processing category ref: "' . $ref . '"');
 
             if ($ref && isset($this->category_map[$ref])) {
                 $woo_categories[] = [
                     'id' => $this->category_map[$ref],
                 ];
-                error_log('Ewheel Importer DEBUG (transform_categories): MATCHED ref "' . $ref . '" to WooCommerce ID ' . $this->category_map[$ref]);
-            } else {
-                error_log('Ewheel Importer DEBUG (transform_categories): NO MATCH for ref "' . $ref . '" in category_map');
-
-                // Debug: Show available keys if there's a mismatch
-                if (!empty($this->category_map) && !isset($this->category_map[$ref])) {
-                    error_log('Ewheel Importer DEBUG (transform_categories): Available keys: ' . implode(', ', array_keys($this->category_map)));
-                }
             }
         }
 
@@ -1081,13 +1067,22 @@ class ProductTransformer
         foreach ($variants as $variant) {
             $v = array_change_key_case($variant, CASE_LOWER);
 
+            $net_price = $v['net'] ?? ($variant['Net'] ?? 0);
+            $compare_price = $v['compareprice'] ?? ($variant['ComparePrice'] ?? ($v['comparePrice'] ?? null));
+
             $variation = [
                 'sku' => $v['reference'] ?? ($variant['Reference'] ?? ''),
-                'regular_price' => $this->convert_price($v['net'] ?? ($variant['Net'] ?? 0)),
+                'regular_price' => $this->convert_price($net_price),
                 'attributes' => [],
                 'manage_stock' => true, // Default to managed
                 'stock_quantity' => isset($v['stock']) ? (int) $v['stock'] : 100, // Default to 100 if missing, matching user script logic
             ];
+
+            // If comparePrice exists and is greater than net, product is on sale
+            if ($compare_price !== null && (float) $compare_price > 0 && (float) $compare_price > (float) $net_price) {
+                $variation['regular_price'] = $this->convert_price($compare_price);
+                $variation['sale_price'] = $this->convert_price($net_price);
+            }
 
             // Image
             if (!empty($v['images'])) {

@@ -50,11 +50,15 @@ class PersistentLogger
         ?int $profile_id = null
     ): bool {
         global $wpdb;
+        if (null === $wpdb) {
+            return false;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return false;
         }
 
@@ -155,6 +159,9 @@ class PersistentLogger
     public static function get_logs(array $args = []): array
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return [];
+        }
 
         $defaults = [
             'level' => '',
@@ -170,7 +177,8 @@ class PersistentLogger
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return [];
         }
 
@@ -203,7 +211,7 @@ class PersistentLogger
 
         $where_clause = implode(' AND ', $where);
 
-        $sql = "SELECT * FROM $table_name WHERE $where_clause ORDER BY created_at $order LIMIT %d OFFSET %d";
+        $sql = "SELECT * FROM `{$table_name}` WHERE {$where_clause} ORDER BY created_at {$order} LIMIT %d OFFSET %d";
         $prepare_args[] = $limit;
         $prepare_args[] = $offset;
 
@@ -223,11 +231,15 @@ class PersistentLogger
     public static function get_count(array $args = []): int
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return 0;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return 0;
         }
 
@@ -256,7 +268,7 @@ class PersistentLogger
 
         $where_clause = implode(' AND ', $where);
 
-        $sql = "SELECT COUNT(*) FROM $table_name WHERE $where_clause";
+        $sql = "SELECT COUNT(*) FROM `{$table_name}` WHERE {$where_clause}";
 
         if (!empty($prepare_args)) {
             $sql = $wpdb->prepare($sql, $prepare_args);
@@ -294,15 +306,20 @@ class PersistentLogger
     public static function clear_all(): bool
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return false;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return false;
         }
 
-        return $wpdb->query("TRUNCATE TABLE $table_name") !== false;
+        $truncate_sql = "TRUNCATE TABLE `{$table_name}`";
+        return $wpdb->query($truncate_sql) !== false;
     }
 
     /**
@@ -314,20 +331,20 @@ class PersistentLogger
     public static function clear_for_profile(int $profile_id): int
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return 0;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return 0;
         }
 
-        return (int) $wpdb->query(
-            $wpdb->prepare(
-                "DELETE FROM $table_name WHERE profile_id = %d",
-                $profile_id
-            )
-        );
+        $delete_sql = $wpdb->prepare("DELETE FROM `{$table_name}` WHERE profile_id = %d", $profile_id);
+        return (int) $wpdb->query($delete_sql);
     }
 
     /**
@@ -339,22 +356,22 @@ class PersistentLogger
     public static function clear_older_than(int $days): int
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return 0;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         // Check if table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        if ($wpdb->get_var($check_sql) !== $table_name) {
             return 0;
         }
 
         $cutoff = gmdate('Y-m-d H:i:s', strtotime("-{$days} days"));
 
-        return (int) $wpdb->query(
-            $wpdb->prepare(
-                "DELETE FROM $table_name WHERE created_at < %s",
-                $cutoff
-            )
-        );
+        $delete_sql = $wpdb->prepare("DELETE FROM `{$table_name}` WHERE created_at < %s", $cutoff);
+        return (int) $wpdb->query($delete_sql);
     }
 
     /**
@@ -367,6 +384,9 @@ class PersistentLogger
     private static function prune_old_entries(): void
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
@@ -375,17 +395,17 @@ class PersistentLogger
             return;
         }
 
-        $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        $count_sql = "SELECT COUNT(*) FROM `{$table_name}`";
+        $count = (int) $wpdb->get_var($count_sql);
 
         if ($count > self::MAX_ENTRIES) {
             $to_delete = $count - self::MAX_ENTRIES;
             // Use subquery for SQLite compatibility (no DELETE...ORDER BY...LIMIT)
-            $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM $table_name WHERE id IN (SELECT id FROM $table_name ORDER BY created_at ASC LIMIT %d)",
-                    $to_delete
-                )
+            $delete_sql = $wpdb->prepare(
+                "DELETE FROM `{$table_name}` WHERE id IN (SELECT id FROM `{$table_name}` ORDER BY created_at ASC LIMIT %d)",
+                $to_delete
             );
+            $wpdb->query($delete_sql);
         }
     }
 
@@ -397,6 +417,9 @@ class PersistentLogger
     public static function install_table(): void
     {
         global $wpdb;
+        if (null === $wpdb) {
+            return;
+        }
 
         $table_name = $wpdb->prefix . self::TABLE_NAME;
         $charset_collate = $wpdb->get_charset_collate();

@@ -202,8 +202,10 @@ class SchemaInstaller
         );
 
         if (empty($column_exists)) {
-            $wpdb->query("ALTER TABLE $history_table ADD COLUMN profile_id bigint(20) unsigned DEFAULT NULL AFTER sync_id");
-            $wpdb->query("ALTER TABLE $history_table ADD KEY profile_id (profile_id)");
+            $alter_sql = "ALTER TABLE `{$history_table}` ADD COLUMN profile_id bigint(20) unsigned DEFAULT NULL AFTER sync_id";
+            $wpdb->query($alter_sql);
+            $index_sql = "ALTER TABLE `{$history_table}` ADD KEY profile_id (profile_id)";
+            $wpdb->query($index_sql);
         }
 
         // Add profile_id column to sync_logs if not exists
@@ -217,8 +219,10 @@ class SchemaInstaller
         );
 
         if (empty($column_exists)) {
-            $wpdb->query("ALTER TABLE $logs_table ADD COLUMN profile_id bigint(20) unsigned DEFAULT NULL AFTER batch_id");
-            $wpdb->query("ALTER TABLE $logs_table ADD KEY profile_id (profile_id)");
+            $alter_sql = "ALTER TABLE `{$logs_table}` ADD COLUMN profile_id bigint(20) unsigned DEFAULT NULL AFTER batch_id";
+            $wpdb->query($alter_sql);
+            $index_sql = "ALTER TABLE `{$logs_table}` ADD KEY profile_id (profile_id)";
+            $wpdb->query($index_sql);
         }
 
         // Create default profile from existing settings

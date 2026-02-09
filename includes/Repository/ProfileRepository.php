@@ -316,7 +316,8 @@ class ProfileRepository implements RepositoryInterface
                 $params[] = $exclude_id;
             }
 
-            $exists = $wpdb->get_var($wpdb->prepare($sql, ...$params));
+            $prepared = $wpdb->prepare($sql, ...$params);
+            $exists = $wpdb->get_var($prepared);
 
             if (!$exists) {
                 break;

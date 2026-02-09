@@ -544,7 +544,8 @@ class SyncHistoryManager
             return 0;
         }
 
-        $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        $count_sql = "SELECT COUNT(*) FROM `{$table_name}`";
+        $count = (int) $wpdb->get_var($count_sql);
 
         if ($count <= $keep) {
             return 0;
@@ -552,12 +553,11 @@ class SyncHistoryManager
 
         $to_delete = $count - $keep;
 
-        return (int) $wpdb->query(
-            $wpdb->prepare(
-                "DELETE FROM $table_name ORDER BY started_at ASC LIMIT %d",
-                $to_delete
-            )
+        $delete_sql = $wpdb->prepare(
+            "DELETE FROM `{$table_name}` ORDER BY started_at ASC LIMIT %d",
+            $to_delete
         );
+        return (int) $wpdb->query($delete_sql);
     }
 
     /**
@@ -571,7 +571,8 @@ class SyncHistoryManager
 
         $table_name = $wpdb->prefix . SchemaInstaller::SYNC_HISTORY_TABLE;
 
-        return $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+        $check_sql = $wpdb->prepare("SHOW TABLES LIKE %s", $table_name);
+        return $wpdb->get_var($check_sql) === $table_name;
     }
 
     /**

@@ -7,7 +7,7 @@
 
 namespace Trotibike\EwheelImporter\Translation;
 
-use Trotibike\EwheelImporter\Logging\PersistentLogger;
+use Trotibike\EwheelImporter\Log\PersistentLogger;
 use Trotibike\EwheelImporter\Repository\TranslationRepository;
 
 /**

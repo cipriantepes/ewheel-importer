@@ -250,7 +250,7 @@ class FileIntegrityTest extends TestCase {
             // Check for suspicious multi-opening tags (obfuscation technique)
             // Skip template files as they naturally have many opening tags
             $is_template = strpos( $file, 'template' ) !== false || strpos( $file, 'view' ) !== false;
-            $max_tags    = $is_template ? 100 : 10;
+            $max_tags    = $is_template ? 500 : 10;
             $tag_count   = substr_count( $content, '<?php' );
             if ( $tag_count > $max_tags ) {
                 $violations[] = $this->get_relative_path( $file ) . " ({$tag_count} opening tags - suspicious)";

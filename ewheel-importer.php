@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           1.7.0
+ * Version:           1.9.0
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '1.6.0');
+define('EWHEEL_IMPORTER_VERSION', '1.9.0');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -237,8 +237,9 @@ final class Ewheel_Importer
         register_activation_hook(EWHEEL_IMPORTER_FILE, [$this, 'activate']);
         register_deactivation_hook(EWHEEL_IMPORTER_FILE, [$this, 'deactivate']);
 
-        // Action Scheduler Hook
+        // Action Scheduler Hooks
         add_action('ewheel_importer_process_batch', [$this, 'process_batch_action'], 10, 4);
+        add_action('ewheel_importer_sync_stock', [$this, 'process_stock_sync_action'], 10, 2);
 
         // Brand Taxonomy
         add_action('init', [$this, 'register_product_brand_taxonomy'], 5);
@@ -661,34 +662,39 @@ final class Ewheel_Importer
      */
     public function process_batch_action(int $page, string $sync_id, string $since, ?int $profile_id = null): void
     {
-        error_log("=== EWHEEL BATCH START === Page: $page, SyncID: $sync_id, Profile: " . ($profile_id ?? 'Global'));
-
         try {
-            error_log("[Ewheel] Step 1: Loading LiveLogger...");
             if (!class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
                 require_once EWHEEL_IMPORTER_PATH . 'includes/Log/LiveLogger.php';
             }
-            error_log("[Ewheel] Step 1: Done");
 
-            error_log("[Ewheel] Step 2: Building container...");
             $container = ServiceFactory::build_container();
-            error_log("[Ewheel] Step 2: Done");
-
-            error_log("[Ewheel] Step 3: Getting SyncBatchProcessor...");
             $processor = $container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
-            error_log("[Ewheel] Step 3: Done");
-
-            error_log("[Ewheel] Step 4: Calling process_batch...");
             $processor->process_batch($page, $sync_id, $since, $profile_id);
-            error_log("[Ewheel] Step 4: Done - process_batch completed");
-
         } catch (\Throwable $e) {
-            error_log('=== EWHEEL BATCH ERROR === ' . $e->getMessage());
-            error_log('File: ' . $e->getFile() . ':' . $e->getLine());
-            error_log('Trace: ' . $e->getTraceAsString());
+            error_log('Ewheel Importer batch error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         }
+    }
 
-        error_log("=== EWHEEL BATCH END ===");
+    /**
+     * Process stock sync via Action Scheduler (runs after all product batches complete).
+     *
+     * @param string   $sync_id    Sync ID.
+     * @param int|null $profile_id Profile ID.
+     * @return void
+     */
+    public function process_stock_sync_action(string $sync_id, ?int $profile_id = null): void
+    {
+        try {
+            if (!class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
+                require_once EWHEEL_IMPORTER_PATH . 'includes/Log/LiveLogger.php';
+            }
+
+            $container = ServiceFactory::build_container();
+            $processor = $container->get(\Trotibike\EwheelImporter\Sync\SyncBatchProcessor::class);
+            $processor->process_stock_sync($sync_id, $profile_id);
+        } catch (\Throwable $e) {
+            error_log('Ewheel Importer stock sync error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        }
     }
 
     /**

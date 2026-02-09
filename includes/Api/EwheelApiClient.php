@@ -160,8 +160,7 @@ class EwheelApiClient
         // Body contains filter fields: hasImages, active, category, productReference, etc.
         $body = !empty($filters) ? $filters : new \stdClass();
 
-        // DEBUG: Log full request details
-        \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Request: POST {$url}, body=" . wp_json_encode($body));
+        \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Request: POST {$url}, body=" . wp_json_encode($body));
         \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST {$url} (Page: {$page})", 'info');
 
         try {
@@ -175,8 +174,7 @@ class EwheelApiClient
             $products = $this->extract_data($response);
 
             $count = count($products);
-            // DEBUG: Log response details
-            \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Response: HTTP success, products={$count}");
+            \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Response: HTTP success, products={$count}");
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
 
             if ($count === 0) {
@@ -300,45 +298,70 @@ class EwheelApiClient
     /**
      * Get stock levels from the API.
      *
-     * Returns all stock entries. The stock endpoint returns all data in one call.
+     * Handles pagination automatically to fetch all stock entries.
      *
      * @return array Stock data indexed by variant reference.
      */
     public function get_stock(): array
     {
-        $url = self::BASE_URL . self::STOCK_ENDPOINT;
+        $indexed = [];
+        $page = 0;
+        $page_size = self::DEFAULT_PAGE_SIZE;
 
-        try {
-            $response = $this->http_client->post(
-                $url,
-                [],
-                $this->get_headers()
-            );
+        do {
+            $query_params = [
+                'Page' => $page,
+                'PageSize' => $page_size,
+            ];
 
-            $data = $this->extract_data($response);
+            $url = self::BASE_URL . self::STOCK_ENDPOINT . '?' . http_build_query($query_params);
 
-            // Index by variant reference for easy lookup
-            $indexed = [];
-            foreach ($data as $entry) {
-                $ref = $entry['variantReference'] ?? '';
-                if (!empty($ref)) {
-                    $indexed[$ref] = (int) ($entry['stock'] ?? 0);
+            try {
+                $response = $this->http_client->post(
+                    $url,
+                    [],
+                    $this->get_headers()
+                );
+
+                $data = $this->extract_data($response);
+
+                if (empty($data)) {
+                    break;
                 }
+
+                // Index by variant reference for easy lookup
+                foreach ($data as $entry) {
+                    $ref = $entry['variantReference'] ?? '';
+                    if (!empty($ref)) {
+                        $indexed[$ref] = (int) ($entry['stock'] ?? 0);
+                    }
+                }
+
+                $page++;
+
+                // Safety limit to prevent infinite loops
+                if ($page >= self::MAX_PAGES) {
+                    \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                        "Warning: Reached max page limit ({$page}) for stock. Stopping pagination.",
+                        'warning'
+                    );
+                    break;
+                }
+            } catch (\Exception $e) {
+                \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                    "Failed to fetch stock on page {$page}: " . $e->getMessage(),
+                    'error'
+                );
+                break; // Return partial data on error
             }
+        } while (true); // Stop only when empty page received
 
-            \Trotibike\EwheelImporter\Log\LiveLogger::log(
-                "Fetched stock for " . count($indexed) . " variants",
-                'success'
-            );
+        \Trotibike\EwheelImporter\Log\LiveLogger::log(
+            "Fetched stock for " . count($indexed) . " variants in {$page} pages",
+            'success'
+        );
 
-            return $indexed;
-        } catch (\Exception $e) {
-            \Trotibike\EwheelImporter\Log\LiveLogger::log(
-                "Failed to fetch stock: " . $e->getMessage(),
-                'error'
-            );
-            return [];
-        }
+        return $indexed;
     }
 
     /**

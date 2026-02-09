@@ -109,7 +109,13 @@ class EwheelApiClientTest extends TestCase {
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
-                'https://api.ewheel.es/api/v1/catalog/products/filter',
+                Mockery::on(
+                    function ( $url ) {
+                        return strpos( $url, 'https://api.ewheel.es/api/v1/catalog/products/filter' ) === 0
+                            && strpos( $url, 'Page=0' ) !== false
+                            && strpos( $url, 'PageSize=50' ) !== false;
+                    }
+                ),
                 Mockery::type( 'array' ),
                 Mockery::type( 'array' )
             )
@@ -132,7 +138,13 @@ class EwheelApiClientTest extends TestCase {
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
-                'https://api.ewheel.es/api/v1/catalog/products/filter',
+                Mockery::on(
+                    function ( $url ) {
+                        return strpos( $url, 'https://api.ewheel.es/api/v1/catalog/products/filter' ) === 0
+                            && strpos( $url, 'Page=0' ) !== false
+                            && strpos( $url, 'PageSize=10' ) !== false;
+                    }
+                ),
                 Mockery::on(
                     function ( $body ) {
                         return isset( $body['active'] ) && $body['active'] === true
@@ -166,12 +178,13 @@ class EwheelApiClientTest extends TestCase {
         $http_client->shouldReceive( 'post' )
             ->once()
             ->with(
-                'https://api.ewheel.es/api/v1/catalog/products/filter',
                 Mockery::on(
-                    function ( $body ) use ( $since_date ) {
-                        return isset( $body['NewerThan'] ) && $body['NewerThan'] === $since_date;
+                    function ( $url ) use ( $since_date ) {
+                        return strpos( $url, 'https://api.ewheel.es/api/v1/catalog/products/filter' ) === 0
+                            && strpos( $url, 'NewerThan=' ) !== false;
                     }
                 ),
+                Mockery::type( 'array' ),
                 Mockery::type( 'array' )
             )
             ->andReturn( $this->wrap_response( [] ) );
@@ -248,12 +261,13 @@ class EwheelApiClientTest extends TestCase {
     public function test_get_all_products_handles_pagination(): void {
         $page1 = $this->wrap_response( ProductFixtures::product_list( 50 ) );
         $page2 = $this->wrap_response( ProductFixtures::product_list( 50 ) );
-        $page3 = $this->wrap_response( ProductFixtures::product_list( 25 ) ); // Less than page size = last page
+        $page3 = $this->wrap_response( ProductFixtures::product_list( 25 ) );
+        $page4 = $this->wrap_response( [] ); // Empty page stops pagination
 
         $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
-            ->times( 3 )
-            ->andReturn( $page1, $page2, $page3 );
+            ->times( 4 )
+            ->andReturn( $page1, $page2, $page3, $page4 );
 
         $client   = new EwheelApiClient( 'test-api-key', $http_client );
         $products = $client->get_all_products();

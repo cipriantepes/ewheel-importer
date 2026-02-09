@@ -452,15 +452,12 @@ class WooCommerceSync
      */
     public function process_ewheel_products_batch(array $ewheel_products, $profile_config = null): array
     {
-        // DEBUG: Log batch start
-        error_log("[Ewheel WooSync] process_ewheel_products_batch called with " . count($ewheel_products) . " products");
-        PersistentLogger::info("[DEBUG] process_ewheel_products_batch called with " . count($ewheel_products) . " products");
+        PersistentLogger::info("process_ewheel_products_batch called with " . count($ewheel_products) . " products");
 
         // Load category map for this batch
         if ($this->category_repository) {
             $category_map = $this->category_repository->get_combined_mapping();
             $this->transformer->set_category_map($category_map);
-            error_log("[Ewheel WooSync] Category map loaded with " . count($category_map) . " categories");
         }
 
         $results = [
@@ -476,7 +473,6 @@ class WooCommerceSync
 
         if (!$skip_prefetch) {
             try {
-                error_log("[Ewheel WooSync] Prefetching translations for batch...");
                 PersistentLogger::info("[Performance] Prefetching translations for batch of " . count($ewheel_products) . " items...");
 
                 // Set a flag before calling - if we crash, next run can skip
@@ -486,15 +482,10 @@ class WooCommerceSync
 
                 // Clear the flag on success
                 delete_transient('ewheel_translation_in_progress');
-
-                error_log("[Ewheel WooSync] Prefetch complete");
             } catch (\Throwable $e) {
                 delete_transient('ewheel_translation_in_progress');
-                error_log("[Ewheel WooSync] Prefetch failed: " . $e->getMessage());
                 PersistentLogger::warning("[Translation] Prefetch failed — products in this batch may appear untranslated: " . $e->getMessage());
             }
-        } else {
-            error_log("[Ewheel WooSync] Skipping prefetch (EWHEEL_SKIP_TRANSLATION is set)");
         }
         // --- OPTIMIZATION END ---
 
@@ -509,27 +500,22 @@ class WooCommerceSync
             if (is_array($raw_name)) {
                 $raw_name = $raw_name['es'] ?? reset($raw_name) ?: 'no-name';
             }
-            error_log("[Ewheel WooSync] Processing product {$product_index}/" . count($ewheel_products) . ": ref={$raw_ref}");
-            PersistentLogger::info("[DEBUG] Processing ewheel product: reference={$raw_ref}, name=" . substr($raw_name, 0, 50));
+            PersistentLogger::info("Processing ewheel product: reference={$raw_ref}, name=" . substr($raw_name, 0, 50));
 
             // Transform single product (may return multiple if simple mode)
             try {
                 $transformed_products = $this->transformer->transform($raw_product);
-                error_log("[Ewheel WooSync] Transformer returned " . count($transformed_products) . " products for ref={$raw_ref}");
             } catch (\Throwable $e) {
-                error_log("[Ewheel WooSync] Transform failed for ref={$raw_ref}: " . $e->getMessage());
                 $results['errors']++;
                 continue;
             }
 
-            // DEBUG: Log transformation result
-            PersistentLogger::info("[DEBUG] Transformer returned " . count($transformed_products) . " products for reference " . $raw_ref);
+            PersistentLogger::info("Transformer returned " . count($transformed_products) . " products for reference " . $raw_ref);
 
             // Process each transformed product
             foreach ($transformed_products as $product_data) {
                 try {
                     $result = $this->sync_single_product($product_data);
-                    error_log("[Ewheel WooSync] sync_single_product result: {$result} for SKU=" . ($product_data['sku'] ?? 'no-sku'));
 
                     if ($result === 'created') {
                         $results['created']++;
@@ -539,7 +525,6 @@ class WooCommerceSync
                         $results['errors']++;
                     }
                 } catch (\Throwable $e) {
-                    error_log("[Ewheel WooSync] sync_single_product failed: " . $e->getMessage());
                     $results['errors']++;
                 }
 
@@ -604,13 +589,12 @@ class WooCommerceSync
             $existing_id = $this->find_product_by_ewheel_reference($product_data);
         }
 
-        // DEBUG: Log SKU lookup result
-        PersistentLogger::info("[DEBUG] sync_single_product - SKU: {$sku}, existing_id: " . ($existing_id ?: 'none'));
+        PersistentLogger::info("sync_single_product - SKU: {$sku}, existing_id: " . ($existing_id ?: 'none'));
 
         try {
             if ($existing_id) {
                 $this->update_product($existing_id, $product_data);
-                PersistentLogger::info("[DEBUG] Product updated - ID: {$existing_id}, SKU: {$sku}");
+                PersistentLogger::info("Product updated - ID: {$existing_id}, SKU: {$sku}");
                 return 'updated';
             } else {
                 // Before creating, check for parent relationship
@@ -624,11 +608,11 @@ class WooCommerceSync
                 }
 
                 $new_id = $this->create_product($product_data);
-                PersistentLogger::info("[DEBUG] Product created - ID: {$new_id}, SKU: {$sku}");
+                PersistentLogger::info("Product created - ID: {$new_id}, SKU: {$sku}");
                 return 'created';
             }
         } catch (\Exception $e) {
-            PersistentLogger::error("[DEBUG] Exception in sync_single_product for SKU {$sku}: " . $e->getMessage());
+            PersistentLogger::error("Exception in sync_single_product for SKU {$sku}: " . $e->getMessage());
             // Log to persistent logger if available
             if (class_exists(\Trotibike\EwheelImporter\Log\PersistentLogger::class)) {
                 \Trotibike\EwheelImporter\Log\PersistentLogger::error(
@@ -636,7 +620,6 @@ class WooCommerceSync
                     $sku
                 );
             }
-            error_log('Failed to sync product ' . $sku . ': ' . $e->getMessage());
             return 'error';
         }
     }
@@ -883,6 +866,63 @@ class WooCommerceSync
     }
 
     /**
+     * Reconcile WooCommerce products against API product references.
+     *
+     * Unpublishes (sets to draft) products that no longer exist in the API.
+     * Only affects products that have _ewheel_reference meta (imported products).
+     *
+     * @param array $active_references Array of ewheel references currently active in API.
+     * @return array Stats: ['unpublished' => int, 'checked' => int].
+     */
+    public function reconcile_products(array $active_references): array
+    {
+        global $wpdb;
+
+        // Get all WooCommerce product IDs that have _ewheel_reference meta
+        $ewheel_products = $wpdb->get_results(
+            "SELECT post_id, meta_value FROM {$wpdb->postmeta}
+             WHERE meta_key = '_ewheel_reference'
+             AND meta_value != ''",
+            ARRAY_A
+        );
+
+        $active_set = array_flip($active_references);
+        $unpublished = 0;
+        $checked = count($ewheel_products);
+
+        foreach ($ewheel_products as $row) {
+            $ref = $row['meta_value'];
+            $post_id = (int) $row['post_id'];
+
+            if (isset($active_set[$ref])) {
+                continue; // Still active in API
+            }
+
+            // Check current status — only unpublish if currently published
+            $post_status = get_post_status($post_id);
+            if ($post_status === 'publish') {
+                wp_update_post([
+                    'ID' => $post_id,
+                    'post_status' => 'draft',
+                ]);
+
+                // Track why it was unpublished
+                update_post_meta($post_id, '_ewheel_unpublished_reason', 'removed_from_api');
+                update_post_meta($post_id, '_ewheel_unpublished_at', gmdate('Y-m-d\TH:i:s'));
+
+                $unpublished++;
+            }
+        }
+
+        \Trotibike\EwheelImporter\Log\LiveLogger::log(
+            "Lifecycle reconciliation: {$unpublished} unpublished, {$checked} checked",
+            $unpublished > 0 ? 'warning' : 'success'
+        );
+
+        return ['unpublished' => $unpublished, 'checked' => $checked];
+    }
+
+    /**
      * Set product data on a WooCommerce product object.
      *
      * @param \WC_Product $product The product object.
@@ -916,6 +956,13 @@ class WooCommerceSync
 
         if (isset($data['regular_price']) && !$is_protected('price')) {
             $product->set_regular_price($data['regular_price']);
+        }
+
+        if (isset($data['sale_price']) && !$is_protected('price')) {
+            $product->set_sale_price($data['sale_price']);
+        } elseif ($is_update && !$is_protected('price') && !isset($data['sale_price'])) {
+            // Clear sale price if product is no longer on sale
+            $product->set_sale_price('');
         }
 
         if (isset($data['status'])) {

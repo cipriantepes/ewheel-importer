@@ -42,7 +42,8 @@ class ProductTransformerTest extends TestCase {
         $woo_product = $result[0];
 
         $this->assertEquals( 'Trotinetă Electrică X1', $woo_product['name'] );
-        $this->assertEquals( 'Trotinetă electrică de înaltă performanță', $woo_product['description'] );
+        // Description also comes from the Name field (API Description has pipe-separated data)
+        $this->assertEquals( 'Trotinetă Electrică X1', $woo_product['description'] );
         $this->assertEquals( 'SCOOTER-X1', $woo_product['sku'] );
         $this->assertEquals( 'publish', $woo_product['status'] );
         $this->assertEquals( 'simple', $woo_product['type'] );

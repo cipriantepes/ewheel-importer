@@ -120,6 +120,13 @@ class VariationService
             $variation->set_price($data['regular_price']);
         }
 
+        if (isset($data['sale_price'])) {
+            $variation->set_sale_price($data['sale_price']);
+            $variation->set_price($data['sale_price']); // WC display price = sale price when on sale
+        } else {
+            $variation->set_sale_price(''); // Clear sale price if not on sale
+        }
+
         // Stock management
         if (isset($data['manage_stock'])) {
             $variation->set_manage_stock($data['manage_stock']);
