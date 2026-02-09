@@ -138,26 +138,31 @@ class EwheelApiClient
      */
     public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
     {
-        $body = [
-            'productsFilter' => array_merge(
-                [
-                    'Page' => $page,
-                    'PageSize' => $page_size,
-                ],
-                $filters
-            ),
+        // Per Swagger: Page, PageSize, NewerThan are query params; body is the filter object
+        $query_params = [
+            'Page' => $page,
+            'PageSize' => $page_size,
         ];
 
-        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
+        // NewerThan goes in query params, not body
+        if (isset($filters['NewerThan'])) {
+            $query_params['NewerThan'] = $filters['NewerThan'];
+            unset($filters['NewerThan']);
+        }
+
+        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT . '?' . http_build_query($query_params);
+
+        // Body contains filter fields: hasImages, active, category, productReference, etc.
+        $body = !empty($filters) ? $filters : new \stdClass();
 
         // DEBUG: Log full request details
-        \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Request: POST {$url} page={$page}, params=" . wp_json_encode($body));
-        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST $url (Page: $page)", 'info');
+        \Trotibike\EwheelImporter\Log\PersistentLogger::info("[DEBUG] API Request: POST {$url}, body=" . wp_json_encode($body));
+        \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST {$url} (Page: {$page})", 'info');
 
         try {
             $response = $this->http_client->post(
                 $url,
-                $body,
+                (array) $body,
                 $this->get_headers()
             );
 
@@ -230,65 +235,21 @@ class EwheelApiClient
      */
     public function get_product_count(array $filters = []): int
     {
-        // The API doesn't return a total count field, so we fetch one large page and count.
-        $products = $this->get_products(0, 1000, $filters);
+        // The API doesn't return a total count field and max PageSize is ~50.
+        // Paginate through all pages, counting products without storing them.
+        $total = 0;
+        $page = 0;
+        $page_size = 50;
+        $max_pages = 200; // Safety limit (~10,000 products)
 
-        return count($products);
-        // Note: if the catalog ever exceeds 1000, this will need pagination.
-    }
+        do {
+            $products = $this->get_products($page, $page_size, $filters);
+            $count = count($products);
+            $total += $count;
+            $page++;
+        } while ($count >= $page_size && $page < $max_pages);
 
-    /**
-     * Legacy product count method (unused).
-     *
-     * @param array $filters Optional filters.
-     * @return int The total product count.
-     */
-    private function get_product_count_legacy(array $filters = []): int
-    {
-        $body = [
-            'productsFilter' => array_merge(
-                [
-                    'Page' => 0,
-                    'PageSize' => 1,
-                ],
-                $filters
-            ),
-        ];
-
-        $url = self::BASE_URL . self::PRODUCTS_ENDPOINT;
-
-        try {
-            $response = $this->http_client->post(
-                $url,
-                $body,
-                $this->get_headers()
-            );
-
-            $total = $response['TotalCount']
-                ?? $response['totalCount']
-                ?? $response['Total']
-                ?? $response['total']
-                ?? $response['Count']
-                ?? $response['count']
-                ?? $response['TotalRecords']
-                ?? $response['totalRecords']
-                ?? null;
-
-            if ($total !== null) {
-                return (int) $total;
-            }
-
-            $data = $this->extract_data($response);
-
-            if (count($data) === 1) {
-                return -1;
-            }
-
-            return count($data);
-        } catch (\Exception $e) {
-            \Trotibike\EwheelImporter\Log\LiveLogger::log("Failed to get product count: " . $e->getMessage(), 'error');
-            return -1;
-        }
+        return $total;
     }
 
     /**

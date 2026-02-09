@@ -15,7 +15,7 @@ class WPHttpClient implements HttpClientInterface {
     /**
      * Default request timeout in seconds.
      */
-    private const DEFAULT_TIMEOUT = 10;
+    private const DEFAULT_TIMEOUT = 30;
 
     /**
      * Extended timeout for slow APIs (LLMs, etc) in seconds.
