@@ -1914,12 +1914,16 @@ class ProductTransformer
                 }
             }
 
-            // 4. Pipe Description Attributes (Brand, Family, Subfamily, Color)
-            // Note: Pipe description itself usually contains values that need translation?
-            // Actually, extract_pipe_attributes returns raw values.
-            // convert_pipe_attributes_to_woo translates specific keys (color, etc.)?
-            // convert_pipe_attributes_to_woo uses $labels (hardcoded Romanian). 
-            // It puts values directly into options.
+            // 4. Pipe Description Attributes (Color, Family, Subfamily)
+            $pipe_data = $this->extract_pipe_attributes($product);
+            if (!empty($pipe_data['attributes'])) {
+                foreach ($pipe_data['attributes'] as $attr) {
+                    $val = is_array($attr) ? ($attr['value'] ?? '') : $attr;
+                    if (is_string($val) && strlen($val) > 1 && !is_numeric($val)) {
+                        $texts_to_translate[$val] = true;
+                    }
+                }
+            }
         }
 
         if (!empty($texts_to_translate)) {
@@ -1973,8 +1977,8 @@ class ProductTransformer
             // But translate_attribute_value translates the raw string properly if it's text.
 
             if (is_string($value) && !is_numeric($value)) {
-                // Heuristic: only translate if it looks like text
-                if (strlen($value) > 2 && !preg_match('/^https?:/', $value)) {
+                // Heuristic: only translate if it looks like text (>1 char, not a URL)
+                if (strlen($value) > 1 && !preg_match('/^https?:/', $value)) {
                     $collection[$value] = true;
                 }
             }
