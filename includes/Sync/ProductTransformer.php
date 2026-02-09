@@ -143,8 +143,13 @@ class ProductTransformer
 
             $sync_fields = $this->config->get_sync_fields();
 
+            // Variable product parents don't need a SKU — variations carry the real SKUs.
+            // Simple products use the clean reference (without -parent suffix).
+            $raw_ref = $p['reference'] ?? ($ewheel_product['Reference'] ?? '');
+            $sku = ($product_type === 'variable') ? '' : $this->clean_sku($raw_ref);
+
             $woo_product = [
-                'sku' => $this->clean_sku($p['reference'] ?? ($ewheel_product['Reference'] ?? '')),
+                'sku' => $sku,
                 'status' => ($p['active'] ?? ($ewheel_product['Active'] ?? false)) ? 'publish' : 'draft',
                 'type' => $product_type,
                 'manage_stock' => false,
@@ -189,20 +194,23 @@ class ProductTransformer
                 $woo_product['_dimensions'] = $pipe_data['dimensions'];
             }
 
-            if (!empty($pipe_data['gtin']['ean'])) {
-                $woo_product['_gtin'] = $pipe_data['gtin']['ean'];
-                // Also add to meta_data
-                $woo_product['meta_data'][] = [
-                    'key' => '_ewheel_ean',
-                    'value' => $pipe_data['gtin']['ean'],
-                ];
-            }
+            // GTIN and barcodes: only set on simple products, not variable parents
+            // (variable product variations get their own GTIN via transform_variations)
+            if ($product_type !== 'variable') {
+                if (!empty($pipe_data['gtin']['ean'])) {
+                    $woo_product['_gtin'] = $pipe_data['gtin']['ean'];
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_ean',
+                        'value' => $pipe_data['gtin']['ean'],
+                    ];
+                }
 
-            if (!empty($pipe_data['gtin']['upc'])) {
-                $woo_product['meta_data'][] = [
-                    'key' => '_ewheel_upc',
-                    'value' => $pipe_data['gtin']['upc'],
-                ];
+                if (!empty($pipe_data['gtin']['upc'])) {
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_upc',
+                        'value' => $pipe_data['gtin']['upc'],
+                    ];
+                }
             }
 
             $price_val = $this->get_mapped_value($p, 'price', 'rrp');
@@ -237,8 +245,8 @@ class ProductTransformer
             }
 
             // Extract EAN/UPC from API attributes (codigo-alternativo, codigo-alternativo-2)
-            // These supplement the pipe-separated description extraction
-            if (is_array($attrs_val)) {
+            // Only for simple products — variable parents skip barcodes (variations carry them)
+            if ($product_type !== 'variable' && is_array($attrs_val)) {
                 $barcode_data = $this->extract_barcode_from_attributes($attrs_val);
                 if (!empty($barcode_data['ean']) && empty($woo_product['_gtin'])) {
                     $woo_product['_gtin'] = $barcode_data['ean'];

@@ -597,7 +597,12 @@ class WooCommerceSync
         $sku = $product_data['sku'] ?? '';
 
         // Check if product exists by SKU
-        $existing_id = wc_get_product_id_by_sku($sku);
+        $existing_id = !empty($sku) ? wc_get_product_id_by_sku($sku) : 0;
+
+        // For variable products (empty SKU), look up by _ewheel_reference meta
+        if (!$existing_id && empty($sku)) {
+            $existing_id = $this->find_product_by_ewheel_reference($product_data);
+        }
 
         // DEBUG: Log SKU lookup result
         PersistentLogger::info("[DEBUG] sync_single_product - SKU: {$sku}, existing_id: " . ($existing_id ?: 'none'));
@@ -689,6 +694,66 @@ class WooCommerceSync
         }
 
         return null;
+    }
+
+    /**
+     * Find an existing product by _ewheel_reference meta.
+     *
+     * Used for variable products that have no SKU (variations carry the SKUs).
+     * Also handles migration from old -parent SKU scheme by looking up the old SKU.
+     *
+     * @param array $product_data The product data.
+     * @return int Product ID or 0 if not found.
+     */
+    private function find_product_by_ewheel_reference(array $product_data): int
+    {
+        // Extract _ewheel_reference from meta_data
+        $ewheel_ref = '';
+        if (!empty($product_data['meta_data'])) {
+            foreach ($product_data['meta_data'] as $meta) {
+                if ($meta['key'] === '_ewheel_reference') {
+                    $ewheel_ref = $meta['value'];
+                    break;
+                }
+            }
+        }
+
+        if (empty($ewheel_ref)) {
+            return 0;
+        }
+
+        // Look up by _ewheel_reference meta
+        global $wpdb;
+        $product_id = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta}
+                WHERE meta_key = '_ewheel_reference'
+                AND meta_value = %s
+                LIMIT 1",
+                $ewheel_ref
+            )
+        );
+
+        if ($product_id) {
+            return (int) $product_id;
+        }
+
+        // Migration: check if product exists with old -parent SKU
+        if (strpos($ewheel_ref, '-parent') !== false) {
+            $old_sku_id = wc_get_product_id_by_sku($ewheel_ref);
+            if ($old_sku_id) {
+                // Clear the old -parent SKU so it doesn't conflict
+                $product = wc_get_product($old_sku_id);
+                if ($product) {
+                    $product->set_sku('');
+                    $product->save();
+                    PersistentLogger::info("[Migration] Cleared old -parent SKU from product {$old_sku_id}: {$ewheel_ref}");
+                }
+                return $old_sku_id;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -920,14 +985,6 @@ class WooCommerceSync
         if (!empty($data['meta_data'])) {
             foreach ($data['meta_data'] as $meta) {
                 $product->update_meta_data($meta['key'], $meta['value']);
-
-                // Set WooCommerce native GTIN field if EAN is found
-                // Available in WooCommerce 8.3+ via set_global_unique_id()
-                if ($meta['key'] === '_ewheel_ean' && !empty($meta['value'])) {
-                    if (method_exists($product, 'set_global_unique_id')) {
-                        $product->set_global_unique_id($meta['value']);
-                    }
-                }
             }
         }
     }
