@@ -134,6 +134,11 @@ class ProductTransformer
                     // Use first variant's reference but maybe prefix or use as base
                     $p['reference'] = $first_variant['reference'] ?? '';
                 }
+
+                // Fallback for RRP (price) from first variant's net price
+                if (empty($p['rrp'])) {
+                    $p['rrp'] = $first_variant['net'] ?? ($first_variant['rrp'] ?? 0);
+                }
             }
 
             $sync_fields = $this->config->get_sync_fields();
@@ -218,12 +223,22 @@ class ProductTransformer
             $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
             $api_attributes = [];
             if ($attrs_val !== null) {
+                // Extract compatible model IDs before attribute filtering removes them
+                $model_ids = $this->extract_model_ids(is_array($attrs_val) ? $attrs_val : []);
+                if (!empty($model_ids)) {
+                    $woo_product['_models'] = $model_ids;
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_compatible_models',
+                        'value' => implode(',', $model_ids),
+                    ];
+                }
+
                 $api_attributes = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
             }
 
             // Merge pipe-extracted attributes (from description field) with API attributes
             $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_data);
-            $woo_product['attributes'] = array_merge($api_attributes, $pipe_woo_attributes);
+            $woo_product['attributes'] = $this->merge_attributes($api_attributes, $pipe_woo_attributes);
 
             // Add variations for variable products
             if ($has_variants) {
@@ -231,8 +246,8 @@ class ProductTransformer
                 $woo_product['variations'] = $this->transform_variations($p['variants']);
                 // For variable products, variation attributes take precedence
                 $variation_attrs = $this->get_variation_attributes($ewheel_product);
-                // Merge with pipe attributes but keep variation attrs as the base
-                $woo_product['attributes'] = array_merge($pipe_woo_attributes, $variation_attrs);
+                // Merge: variation attrs take precedence, pipe attrs fill gaps
+                $woo_product['attributes'] = $this->merge_attributes($variation_attrs, $pipe_woo_attributes);
             }
 
             // DEBUG: Log transform output
@@ -428,13 +443,24 @@ class ProductTransformer
             $attrs_val = $this->get_mapped_value($p, 'attributes', 'attributes');
             $parent_attrs = [];
             if ($attrs_val !== null) {
+                // Extract compatible model IDs before attribute filtering removes them
+                $model_ids = $this->extract_model_ids(is_array($attrs_val) ? $attrs_val : []);
+                if (!empty($model_ids)) {
+                    $woo_product['_models'] = $model_ids;
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_compatible_models',
+                        'value' => implode(',', $model_ids),
+                    ];
+                }
+
                 $parent_attrs = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
             }
 
-            // Combine: parent attrs + variant attrs + pipe-extracted attrs
+            // Combine: parent attrs + variant attrs + pipe-extracted attrs (deduplicated)
             $variant_attrs_woo = $this->transform_variant_attributes($v);
             $pipe_woo_attributes = $this->convert_pipe_attributes_to_woo($pipe_data);
-            $woo_product['attributes'] = array_merge($parent_attrs, $variant_attrs_woo, $pipe_woo_attributes);
+            $combined = $this->merge_attributes($parent_attrs, $variant_attrs_woo);
+            $woo_product['attributes'] = $this->merge_attributes($combined, $pipe_woo_attributes);
 
             $products[] = $woo_product;
         }
@@ -492,13 +518,32 @@ class ProductTransformer
                 $value = $val['value'] ?? ($val['Value'] ?? '');
             }
 
+            if (empty($name)) {
+                continue;
+            }
+
+            // Apply same filtering as transform_attributes_with_visibility
+            $normalized_key = AttributeConfiguration::normalize_key($name);
+            if (AttributeConfiguration::is_brand($normalized_key)) {
+                continue;
+            }
+            if (AttributeConfiguration::is_model($normalized_key)) {
+                continue;
+            }
+            if (AttributeConfiguration::is_dimension($normalized_key)) {
+                continue;
+            }
+            if (AttributeConfiguration::is_meta($normalized_key)) {
+                continue;
+            }
+
             $final_val = $this->clean_attribute_value($value);
 
-            if (!empty($name) && $final_val !== null) {
+            if ($final_val !== null) {
                 $woo_attributes[] = [
                     'name' => $this->translate_attribute_name((string) $name),
                     'options' => [$this->translate_attribute_value($final_val)],
-                    'visible' => true,
+                    'visible' => AttributeConfiguration::get_visibility($normalized_key),
                     'variation' => false,
                 ];
             }
@@ -669,19 +714,94 @@ class ProductTransformer
 
 
     /**
+     * Extract compatible model IDs from raw attributes.
+     *
+     * The 'modelos-compatibles' attribute contains a JSON map like
+     * {"114":"113","118":"117"} where the VALUES are the ewheel model IDs.
+     *
+     * @param array $attributes Raw API attributes.
+     * @return array Array of model ID strings.
+     */
+    private function extract_model_ids(array $attributes): array
+    {
+        foreach ($attributes as $key => $value) {
+            $attr_name = $key;
+            $attr_val = $value;
+
+            if (is_array($value)) {
+                $attr_name = $value['alias'] ?? ($value['Alias'] ?? '');
+                $attr_val = $value['value'] ?? ($value['Value'] ?? '');
+            }
+
+            $normalized = AttributeConfiguration::normalize_key($attr_name);
+            if ($normalized !== 'modelos-compatibles') {
+                continue;
+            }
+
+            // Value is a JSON map {"114":"113","118":"117"} — model IDs are the values
+            if (is_string($attr_val)) {
+                $decoded = json_decode($attr_val, true);
+                if (is_array($decoded)) {
+                    return array_unique(array_values($decoded));
+                }
+                // Fallback: pipe-separated or comma-separated
+                $ids = preg_split('/[|,]/', $attr_val);
+                return array_filter(array_map('trim', $ids));
+            }
+
+            if (is_array($attr_val)) {
+                return array_unique(array_values($attr_val));
+            }
+
+            return [];
+        }
+
+        return [];
+    }
+
+    /**
      * Helper to clean up attribute values (handle JSON, arrays, etc).
-     * 
+     *
      * @param mixed $value The attribute value.
      * @return string|null Cleaned string or null if should be skipped.
      */
     private function clean_attribute_value($value)
     {
         if (is_array($value)) {
-            // If it's a multilingual array or selection
+            // If it's a selection with explicit 'value' key
             if (isset($value['value'])) {
                 $value = $value['value'];
+            } elseif (isset($value['translations']) || isset($value['Translations'])) {
+                // Complex multilingual format — extract Spanish source text
+                // Translation happens later in translate_attribute_value()
+                $translations = $value['translations'] ?? $value['Translations'] ?? [];
+                $extracted = '';
+                foreach ($translations as $t) {
+                    $ref = strtolower($t['reference'] ?? ($t['Reference'] ?? ''));
+                    if ($ref === 'es') {
+                        $extracted = $t['value'] ?? ($t['Value'] ?? '');
+                        break;
+                    }
+                }
+                if (empty($extracted) && !empty($translations)) {
+                    $first = reset($translations);
+                    $extracted = $first['value'] ?? ($first['Value'] ?? '');
+                }
+                $value = (string) $extracted;
             } else {
-                $value = $this->translate_field($value);
+                // Simple multilingual format: {"es": "texto", "en": "text"}
+                // Extract Spanish source text without translating
+                $lower = array_change_key_case($value, CASE_LOWER);
+                $value = $lower['es'] ?? $lower['en'] ?? '';
+                if (empty($value)) {
+                    foreach ($lower as $v) {
+                        if (is_string($v) && !empty($v)) {
+                            $value = $v;
+                            break;
+                        }
+                    }
+                }
+                $value = (string) $value;
             }
         }
 
@@ -805,6 +925,11 @@ class ProductTransformer
                 continue;
             }
 
+            // Skip models - handled as scooter_model taxonomy
+            if (AttributeConfiguration::is_model($normalized_key)) {
+                continue;
+            }
+
             // Skip dimensions - handled by WC native fields
             if (AttributeConfiguration::is_dimension($normalized_key)) {
                 continue;
@@ -869,9 +994,28 @@ class ProductTransformer
                     $value = $val['value'] ?? ($val['Value'] ?? '');
                 }
 
+                if (empty($name)) {
+                    continue;
+                }
+
+                // Apply same filtering as transform_attributes_with_visibility
+                $normalized_key = AttributeConfiguration::normalize_key($name);
+                if (AttributeConfiguration::is_brand($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_model($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_dimension($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_meta($normalized_key)) {
+                    continue;
+                }
+
                 $final_val = $this->clean_attribute_value($value);
 
-                if (!empty($name) && $final_val !== null) {
+                if ($final_val !== null) {
                     if (!isset($attribute_values[$name])) {
                         $attribute_values[$name] = [];
                     }
@@ -885,6 +1029,8 @@ class ProductTransformer
         // Convert to WooCommerce format with translation
         $woo_attributes = [];
         foreach ($attribute_values as $name => $values) {
+            $normalized_key = AttributeConfiguration::normalize_key($name);
+
             // Translate each value
             $translated_values = array_map(function ($val) {
                 return $this->translate_attribute_value($val);
@@ -893,7 +1039,7 @@ class ProductTransformer
             $woo_attributes[] = [
                 'name' => $this->translate_attribute_name((string) $name),
                 'options' => $translated_values,
-                'visible' => true,
+                'visible' => AttributeConfiguration::get_visibility($normalized_key),
                 'variation' => true,
             ];
         }
@@ -951,6 +1097,21 @@ class ProductTransformer
                     $variation['height'] = $value;
                 } elseif ($alias === 'largo') {
                     $variation['length'] = $value;
+                }
+
+                // Filter out brand, model, dimension, and meta attributes
+                $normalized_key = AttributeConfiguration::normalize_key($alias);
+                if (AttributeConfiguration::is_brand($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_model($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_dimension($normalized_key)) {
+                    continue;
+                }
+                if (AttributeConfiguration::is_meta($normalized_key)) {
+                    continue;
                 }
 
                 if (!empty($name) && !empty($value)) {
@@ -1015,10 +1176,16 @@ class ProductTransformer
      */
     private function translate_attribute_name(string $name, string $source_lang = 'es'): string
     {
-        // First format the name
-        $formatted = $this->format_attribute_name($name);
+        // Check for a hardcoded Romanian label first (more reliable for short words)
+        $normalized = AttributeConfiguration::normalize_key($name);
+        $label = AttributeConfiguration::get_label($normalized);
+        // get_label returns ucfirst(slug) as fallback — only use it if it's a real label
+        if (isset(AttributeConfiguration::ATTRIBUTE_LABELS[$normalized])) {
+            return $label;
+        }
 
-        // Translate the formatted name to target language
+        // Fall back to API translation
+        $formatted = $this->format_attribute_name($name);
         $translated = $this->translator->translate($formatted, $source_lang);
 
         return !empty($translated) ? $translated : $formatted;
@@ -1033,20 +1200,31 @@ class ProductTransformer
      */
     private function translate_attribute_value(string $value, string $source_lang = 'es'): string
     {
-        // Skip translation for numeric values, URLs, file paths, and codes
+        $trimmed = trim($value);
+
+        // Skip translation for numeric values, URLs, file paths, codes, and units
         if (
-            is_numeric($value)
-            || preg_match('/^https?:\/\//', $value)
-            || preg_match('/\.(pdf|jpg|png|gif)$/i', $value)
-            || preg_match('/^\d+(\.\d+)?\s*(kg|cm|mm|m|g|l|ml)$/i', $value)
+            $trimmed === ''
+            || is_numeric($trimmed)
+            || preg_match('/^[\d.,]+$/', $trimmed)
+            || preg_match('/^https?:\/\//', $trimmed)
+            || preg_match('/\.(pdf|jpg|png|gif)$/i', $trimmed)
+            || preg_match('/^\d+[\.,]?\d*\s*(kg|cm|mm|m|g|l|ml|v|w|a|ah|wh|mah)$/i', $trimmed)
+            || preg_match('/^\d+\s*[xX×]\s*\d+/', $trimmed)
         ) {
-            return $value;
+            return $trimmed;
+        }
+
+        // Check known value translations for short/problematic strings
+        $lower = strtolower($trimmed);
+        if (isset(AttributeConfiguration::VALUE_TRANSLATIONS[$lower])) {
+            return AttributeConfiguration::VALUE_TRANSLATIONS[$lower];
         }
 
         // Translate text values
-        $translated = $this->translator->translate($value, $source_lang);
+        $translated = $this->translator->translate($trimmed, $source_lang);
 
-        return !empty($translated) ? $translated : $value;
+        return !empty($translated) ? $translated : $trimmed;
     }
 
     /**
@@ -1482,18 +1660,49 @@ class ProductTransformer
                 $visible = true;
             }
 
-            // Get Romanian label from AttributeConfiguration
-            $label = AttributeConfiguration::get_label($key);
+            // Translate name and value
+            $translated_name = $this->translate_attribute_name($key);
+            $translated_value = $this->translate_attribute_value((string) $value);
 
             $woo_attributes[] = [
-                'name' => $label,
-                'options' => [$value],
+                'name' => $translated_name,
+                'options' => [$translated_value],
                 'visible' => $visible,
                 'variation' => false,
             ];
         }
 
         return $woo_attributes;
+    }
+
+    /**
+     * Merge two attribute arrays, deduplicating by slug.
+     *
+     * Primary attributes take precedence over secondary when names collide.
+     *
+     * @param array $primary   Primary attributes (take precedence).
+     * @param array $secondary Secondary attributes (fill gaps only).
+     * @return array Merged attributes.
+     */
+    private function merge_attributes(array $primary, array $secondary): array
+    {
+        // Build a set of slugified names from primary
+        $existing_slugs = [];
+        foreach ($primary as $attr) {
+            $slug = sanitize_title($attr['name'] ?? '');
+            $existing_slugs[$slug] = true;
+        }
+
+        // Only add secondary attrs whose slug doesn't collide
+        foreach ($secondary as $attr) {
+            $slug = sanitize_title($attr['name'] ?? '');
+            if (!isset($existing_slugs[$slug])) {
+                $primary[] = $attr;
+                $existing_slugs[$slug] = true;
+            }
+        }
+
+        return $primary;
     }
 
     /**
@@ -1623,8 +1832,8 @@ class ProductTransformer
 
             PersistentLogger::info("[Performance] Prefetching translations for $count strings...");
 
-            // Process in chunks of 50 to respect API limits if necessary
-            $chunks = array_chunk($unique_texts, 50);
+            // Process in chunks of 25 to stay within token limits and reduce failure blast radius
+            $chunks = array_chunk($unique_texts, 25);
             $chunk_count = count($chunks);
             foreach ($chunks as $index => $chunk) {
                 $this->translator->translate_batch($chunk, 'es');

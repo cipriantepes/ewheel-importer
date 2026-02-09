@@ -8,6 +8,7 @@
 namespace Trotibike\EwheelImporter\Translation;
 
 use Trotibike\EwheelImporter\Api\HttpClientInterface;
+use Trotibike\EwheelImporter\Log\PersistentLogger;
 
 /**
  * Service to translate text using OpenRouter (LLMs).
@@ -37,9 +38,9 @@ class OpenRouterTranslateService implements TranslationServiceInterface
      * Fast models recommended for translation.
      */
     private const RECOMMENDED_MODELS = [
-        'google/gemini-2.0-flash:free',
-        'google/gemini-flash-1.5',
-        'google/gemini-flash-1.5-8b',
+        'google/gemini-2.5-flash',
+        'google/gemini-2.0-flash-001',
+        'google/gemini-2.0-flash-lite-001',
         'meta-llama/llama-3.1-8b-instruct:free',
     ];
 
@@ -175,14 +176,14 @@ class OpenRouterTranslateService implements TranslationServiceInterface
 
         // Skip translation entirely if using a reasoning model - they are too slow
         if ($this->is_reasoning_model($this->model)) {
-            error_log("[Ewheel Translation] SKIPPING batch translation - model '{$this->model}' is a reasoning model (too slow)");
-            error_log("[Ewheel Translation] Please change to a fast model in Settings: " . implode(', ', self::RECOMMENDED_MODELS));
-            error_log("[Ewheel Translation] Returning {$count} original texts without translation");
+            $msg = "Translation SKIPPED: model '{$this->model}' is a reasoning model (too slow). Change to a fast model: " . implode(', ', self::RECOMMENDED_MODELS);
+            error_log("[Ewheel Translation] " . $msg);
+            PersistentLogger::warning("[Translation] " . $msg);
             return array_values($texts);
         }
 
         // For small batches, use single prompt with numbered list
-        // This is much faster than 64 separate API calls
+        // This is much faster than N separate API calls
         error_log("[Ewheel Translation] Batch translating {$count} texts via OpenRouter (model: {$this->model})");
 
         // Build numbered input
@@ -207,7 +208,7 @@ class OpenRouterTranslateService implements TranslationServiceInterface
                     'content' => $input_text,
                 ],
             ],
-            'max_tokens' => 4096,
+            'max_tokens' => 8192,
         ];
 
         $headers = [
@@ -216,35 +217,47 @@ class OpenRouterTranslateService implements TranslationServiceInterface
             'X-Title' => 'Ewheel Importer',
         ];
 
-        try {
-            error_log("[Ewheel Translation] Sending request to OpenRouter (model: {$this->model})...");
-            $start_time = microtime(true);
+        $max_attempts = 2;
+        $last_exception = null;
 
-            $response = $this->http_client->post(self::API_URL, $body, $headers);
+        for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+            try {
+                error_log("[Ewheel Translation] Sending request to OpenRouter (model: {$this->model}, attempt {$attempt}/{$max_attempts})...");
+                $start_time = microtime(true);
 
-            $elapsed = round(microtime(true) - $start_time, 2);
-            error_log("[Ewheel Translation] OpenRouter responded in {$elapsed}s");
+                $response = $this->http_client->post(self::API_URL, $body, $headers);
 
-            if (!isset($response['choices'][0]['message']['content'])) {
-                error_log("[Ewheel Translation] Invalid response: " . wp_json_encode($response));
-                throw new \RuntimeException('Invalid response structure from OpenRouter');
+                $elapsed = round(microtime(true) - $start_time, 2);
+                error_log("[Ewheel Translation] OpenRouter responded in {$elapsed}s");
+
+                if (!isset($response['choices'][0]['message']['content'])) {
+                    error_log("[Ewheel Translation] Invalid response: " . wp_json_encode($response));
+                    throw new \RuntimeException('Invalid response structure from OpenRouter');
+                }
+
+                $output = trim($response['choices'][0]['message']['content']);
+                error_log("[Ewheel Translation] Batch response received, parsing...");
+
+                // Parse numbered output
+                $translated = $this->parse_numbered_response($output, $count, $texts);
+
+                error_log("[Ewheel Translation] Batch complete: {$count} texts translated");
+                return $translated;
+
+            } catch (\Exception $e) {
+                $last_exception = $e;
+                error_log("[Ewheel Translation] Batch attempt {$attempt} failed: " . $e->getMessage());
+
+                if ($attempt < $max_attempts) {
+                    error_log("[Ewheel Translation] Retrying in 2 seconds...");
+                    sleep(2);
+                }
             }
-
-            $output = trim($response['choices'][0]['message']['content']);
-            error_log("[Ewheel Translation] Batch response received, parsing...");
-
-            // Parse numbered output
-            $translated = $this->parse_numbered_response($output, $count, $texts);
-
-            error_log("[Ewheel Translation] Batch complete: {$count} texts translated");
-            return $translated;
-
-        } catch (\Exception $e) {
-            error_log("[Ewheel Translation] Batch translation failed: " . $e->getMessage());
-            error_log("[Ewheel Translation] Returning original texts as fallback");
-            // Fallback: return original texts
-            return array_values($texts);
         }
+
+        error_log("[Ewheel Translation] All {$max_attempts} attempts failed. Returning original texts as fallback.");
+        PersistentLogger::warning("[Translation] Batch translation failed after {$max_attempts} attempts: " . ($last_exception ? $last_exception->getMessage() : 'unknown'));
+        return array_values($texts);
     }
 
     /**
@@ -311,11 +324,17 @@ class OpenRouterTranslateService implements TranslationServiceInterface
 
 TASK: Translate {$count} items from {$source_lang} to Romanian.
 
-RULES:
-- Use proper Romanian diacritics: ă, â, î, ș, ț
-- Apply correct noun-adjective agreement
-- Keep technical terms/brand names untranslated
+ROMANIAN GRAMMAR RULES:
+- Use proper Romanian diacritics: ă, â, î, ș, ț (NEVER use ş or ţ with cedilla)
+- Apply correct noun-adjective agreement (adjective follows noun, agrees in gender/number)
+- Use definite article as suffix where natural: -ul, -a, -le, -lui, -lor
 - Use formal e-commerce register
+- Keep technical terms, brand names, model numbers, and measurements untranslated
+- Do NOT translate pure numbers — return them as-is
+- Capitalize only the first word and proper nouns (Romanian does not use Title Case)
+- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fara' (without), 'din' (from/of)
+- Product names: use natural Romanian word order (noun + adjective, e.g. 'Trotineta Electrica')
+- Short attribute values: translate concisely (e.g. 'Sin gel' = 'Fara gel', 'Si' = 'Da', 'No' = 'Nu')
 
 FORMAT:
 - Input: numbered list (1. text, 2. text, ...)
@@ -323,8 +342,8 @@ FORMAT:
 - Return ONLY the numbered translations, nothing else
 
 Example:
-Input: 1. Electric Scooter
-Output: 1. Trotinetă Electrică";
+Input: 1. Patinete Electrico  2. Cubierta sin camara
+Output: 1. Trotineta electrica  2. Anvelopa fara camera";
         }
 
         return "{$base}
@@ -348,13 +367,16 @@ Input is a numbered list. Return the same numbered format with translations only
             return $base_prompt . " Translate from {$source_lang} to Romanian following these rules:
 
 ROMANIAN GRAMMAR RULES:
-- Use proper Romanian diacritics: ă, â, î, ș, ț (never substitute with a, i, s, t)
-- Apply correct noun-adjective agreement (adjectives follow nouns, agree in gender/number/case)
-- Use Romanian definite articles as suffixes (-ul, -a, -le, -lui, -lor)
-- Use formal register appropriate for e-commerce
-- Preserve technical product terms commonly used untranslated in Romanian (e.g., brand names, model numbers)
+- Use proper Romanian diacritics: ă, â, î, ș, ț (NEVER use ş or ţ with cedilla, NEVER substitute with a, i, s, t)
+- Apply correct noun-adjective agreement (adjective follows noun, agrees in gender/number/case)
+- Use definite article as suffix where natural: -ul, -a, -le, -lui, -lor
+- Use formal e-commerce register
+- Keep technical terms, brand names, model numbers, and measurements untranslated
+- Do NOT translate pure numbers — return them as-is
+- Capitalize only the first word and proper nouns (Romanian does not use Title Case for common nouns)
+- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fara' (without), 'din' (from/of)
+- Product names: use natural Romanian word order (noun + adjective)
 - For measurements, use Romanian conventions (km/h, kg, cm)
-- Translate product categories naturally (e.g., 'Electric Scooters' → 'Trotinete Electrice')
 
 Return ONLY the translation, no explanations, no quotes.";
         }

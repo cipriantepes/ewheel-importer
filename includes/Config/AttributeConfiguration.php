@@ -27,9 +27,16 @@ class AttributeConfiguration
         'conector',           // Connector type
         'o-exterior-in',      // Outer diameter inches
         'o-llanta-in',        // Rim diameter inches
+        'o-exterior-mm',      // Outer diameter mm
         'ancho-neumatico-in', // Tire width inches
-        'modelos-compatibles', // Compatible models
-        'ficha-tecnica',      // PDF data sheet
+        'ancho-neumatico-mm', // Tire width mm
+        'llanta',             // Rim size
+        // 'modelos-compatibles' is now handled as scooter_model taxonomy
+        'voltaje-nominal',    // Nominal voltage
+        'voltaje-nominal-1',  // Nominal voltage (variant)
+        'bisel',              // Bevel/chamfer
+        'terreno',            // Terrain type
+        'gel',                // Gel type (tires)
     ];
 
     /**
@@ -38,6 +45,7 @@ class AttributeConfiguration
     public const HIDDEN_ATTRIBUTES = [
         'familia-sage',
         'subfamilia-sage',
+        'subfamilia',
         'catalogos',
         'tipo',
         'agrupacion-productos',
@@ -64,26 +72,39 @@ class AttributeConfiguration
         'especial-taller'        => '_ewheel_workshop_special',
         'descripcion-metacampo'  => '_ewheel_meta_description',
         'codigo-familia'         => '_ewheel_family_code',
+        'ficha-tecnica'          => '_ewheel_product_sheet',
+        'codigo-alternativo'     => '_ewheel_alt_code',
+        'codigo-alternativo-2'   => '_ewheel_alt_code_2',
+        'sku-anterior'           => '_ewheel_previous_sku',
     ];
 
     /**
-     * Romanian labels for visible attributes.
+     * Romanian labels for attributes with technical/abbreviated names
+     * that the translation API might not handle well.
+     * All other attribute names are translated automatically via the API.
      */
     public const ATTRIBUTE_LABELS = [
-        'color'              => 'Culoare',
-        'talla'              => 'Mărime',
-        'medida'             => 'Măsură',
-        'conector'           => 'Conector',
         'o-exterior-in'      => 'Diametru exterior (inch)',
         'o-llanta-in'        => 'Diametru jantă (inch)',
+        'o-exterior-mm'      => 'Diametru exterior (mm)',
         'ancho-neumatico-in' => 'Lățime anvelopă (inch)',
-        'modelos-compatibles' => 'Modele compatibile',
-        'ficha-tecnica'      => 'Fișă tehnică',
+        'ancho-neumatico-mm' => 'Lățime anvelopă (mm)',
+        'voltaje-nominal-1'  => 'Tensiune nominală',
         'familia-sage'       => 'Familie',
         'subfamilia-sage'    => 'Subfamilie',
-        'catalogos'          => 'Catalog',
-        'tipo'               => 'Tip',
-        'agrupacion-productos' => 'Grupare produse',
+        'bisel'              => 'Teșitură',
+    ];
+
+    /**
+     * Known value translations for short/problematic Spanish strings
+     * that the translation API handles poorly.
+     */
+    public const VALUE_TRANSLATIONS = [
+        'sin gel'   => 'Fără gel',
+        'con gel'   => 'Cu gel',
+        'sí'        => 'Da',
+        'si'        => 'Da',
+        'no'        => 'Nu',
     ];
 
     /**
@@ -189,6 +210,18 @@ class AttributeConfiguration
     {
         $normalized = self::normalize_key($attribute_key);
         return in_array($normalized, ['marca', 'brand'], true);
+    }
+
+    /**
+     * Check if attribute key is a compatible models field.
+     *
+     * @param string $attribute_key The attribute key.
+     * @return bool
+     */
+    public static function is_model(string $attribute_key): bool
+    {
+        $normalized = self::normalize_key($attribute_key);
+        return $normalized === 'modelos-compatibles';
     }
 
     /**

@@ -33,6 +33,7 @@ use Trotibike\EwheelImporter\Service\ImageService;
 use Trotibike\EwheelImporter\Service\AttributeService;
 use Trotibike\EwheelImporter\Service\VariationService;
 use Trotibike\EwheelImporter\Service\BrandService;
+use Trotibike\EwheelImporter\Service\ModelService;
 
 /**
  * Factory for creating and configuring services.
@@ -175,6 +176,12 @@ class ServiceFactory
             fn() => new BrandService()
         );
 
+        // Model Service
+        $container->singleton(
+            ModelService::class,
+            fn() => new ModelService()
+        );
+
         // Repositories
         $container->singleton(
             CategoryRepository::class,
@@ -231,7 +238,9 @@ class ServiceFactory
                 $c->get(VariationService::class),
                 $c->get(ImageService::class),
                 $c->get(BrandService::class),
-                $c->get(Configuration::class)
+                $c->get(ModelService::class),
+                $c->get(Configuration::class),
+                $c->get(Translator::class)
             )
         );
 

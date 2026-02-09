@@ -53,28 +53,21 @@ class OpenRouterTranslateServiceTest extends TestCase {
     }
 
     /**
-     * Test batch translation processes texts one by one.
+     * Test batch translation sends a single numbered-list request.
      */
     public function test_translate_batch(): void {
         Functions\expect( 'get_site_url' )
-            ->times( 2 )
+            ->once()
             ->andReturn( 'https://example.com' );
 
         $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
-            ->times( 2 )
+            ->once()
             ->andReturn(
                 [
                     'choices' => [
                         [
-                            'message' => [ 'content' => 'Trotinetă' ],
-                        ],
-                    ],
-                ],
-                [
-                    'choices' => [
-                        [
-                            'message' => [ 'content' => 'Electrică' ],
+                            'message' => [ 'content' => "1. Trotinetă\n2. Electrică" ],
                         ],
                     ],
                 ]

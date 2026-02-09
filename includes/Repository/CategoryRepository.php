@@ -195,9 +195,13 @@ class CategoryRepository implements RepositoryInterface {
 
         $mapping = [];
         foreach ( $terms as $term ) {
-            $ref = get_term_meta( $term->term_id, self::EWHEEL_REF_META, true );
-            if ( $ref ) {
-                $mapping[ $ref ] = $term->term_id;
+            // A term may map to multiple ewheel references (e.g. when two API
+            // categories translate to the same name). Retrieve all values.
+            $refs = get_term_meta( $term->term_id, self::EWHEEL_REF_META, false );
+            foreach ( $refs as $ref ) {
+                if ( $ref ) {
+                    $mapping[ $ref ] = $term->term_id;
+                }
             }
         }
 

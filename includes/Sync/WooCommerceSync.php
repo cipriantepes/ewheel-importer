@@ -11,6 +11,8 @@ use Trotibike\EwheelImporter\Api\EwheelApiClient;
 use Trotibike\EwheelImporter\Config\Configuration;
 use Trotibike\EwheelImporter\Log\PersistentLogger;
 use Trotibike\EwheelImporter\Service\BrandService;
+use Trotibike\EwheelImporter\Service\ModelService;
+use Trotibike\EwheelImporter\Translation\Translator;
 use WC_Product;
 use WC_Product_Simple;
 use WC_Product_Variable;
@@ -85,6 +87,20 @@ class WooCommerceSync
     private BrandService $brand_service;
 
     /**
+     * Model Service.
+     *
+     * @var ModelService
+     */
+    private ModelService $model_service;
+
+    /**
+     * Translator.
+     *
+     * @var Translator
+     */
+    private Translator $translator;
+
+    /**
      * Constructor.
      *
      * @param EwheelApiClient                                     $ewheel_client       The ewheel API client.
@@ -94,7 +110,9 @@ class WooCommerceSync
      * @param \Trotibike\EwheelImporter\Service\VariationService  $variation_service   Variation service.
      * @param \Trotibike\EwheelImporter\Service\ImageService      $image_service       Image service.
      * @param BrandService                                        $brand_service       Brand service.
+     * @param ModelService                                        $model_service       Model service.
      * @param Configuration                                       $config              Configuration.
+     * @param Translator                                          $translator          The translator instance.
      */
     public function __construct(
         EwheelApiClient $ewheel_client,
@@ -104,7 +122,9 @@ class WooCommerceSync
         \Trotibike\EwheelImporter\Service\VariationService $variation_service,
         \Trotibike\EwheelImporter\Service\ImageService $image_service,
         BrandService $brand_service,
-        Configuration $config
+        ModelService $model_service,
+        Configuration $config,
+        Translator $translator
     ) {
         $this->ewheel_client = $ewheel_client;
         $this->transformer = $transformer;
@@ -113,7 +133,9 @@ class WooCommerceSync
         $this->variation_service = $variation_service;
         $this->image_service = $image_service;
         $this->brand_service = $brand_service;
+        $this->model_service = $model_service;
         $this->config = $config;
+        $this->translator = $translator;
     }
 
     /**
@@ -180,17 +202,38 @@ class WooCommerceSync
 
         // Batch query cache (1-2 DB queries total)
         $cache_map = [];
+        $uncached_by_lang = [];
         foreach ($texts_by_lang as $src_lang => $texts) {
             $batch_result = $translation_repo->get_batch($texts, $src_lang, $target_lang);
             foreach ($texts as $text) {
                 $hash = $translation_repo->generate_hash($text, $src_lang, $target_lang);
                 if (isset($batch_result[$hash])) {
                     $cache_map[$hash] = $batch_result[$hash];
+                } else {
+                    $uncached_by_lang[$src_lang][] = $text;
                 }
             }
         }
 
-        // Second pass: create/update categories using cached translations or original text
+        // Translate cache-missed texts via the translation API
+        if (!empty($uncached_by_lang)) {
+            $skip_translation = defined('EWHEEL_SKIP_TRANSLATION') && EWHEEL_SKIP_TRANSLATION;
+            if (!$skip_translation) {
+                foreach ($uncached_by_lang as $src_lang => $texts) {
+                    try {
+                        $translated = $this->translator->translate_batch($texts, $src_lang);
+                        foreach ($translated as $i => $translated_text) {
+                            $hash = $translation_repo->generate_hash($texts[$i], $src_lang, $target_lang);
+                            $cache_map[$hash] = $translated_text;
+                        }
+                    } catch (\Throwable $e) {
+                        PersistentLogger::error("[Categories] Batch translation failed: " . $e->getMessage());
+                    }
+                }
+            }
+        }
+
+        // Second pass: create/update categories using cached/translated names or original text
         foreach ($category_data as $reference => $data) {
             $hash = $translation_repo->generate_hash($data['source_text'], $data['source_lang'], $target_lang);
             $name = $cache_map[$hash] ?? $data['source_text'];
@@ -248,6 +291,13 @@ class WooCommerceSync
         );
 
         if (is_wp_error($result)) {
+            // Handle duplicate name: reuse the existing term for this ewheel reference
+            if ($result->get_error_code() === 'term_exists') {
+                $existing_id = (int) $result->get_error_data();
+                error_log("[Ewheel Sync] Category '{$name}' already exists (term {$existing_id}), reusing for ref {$reference}");
+                add_term_meta($existing_id, '_ewheel_reference', $reference);
+                return $existing_id;
+            }
             error_log('Failed to create category: ' . $result->get_error_message());
             return null;
         }
@@ -441,7 +491,7 @@ class WooCommerceSync
             } catch (\Throwable $e) {
                 delete_transient('ewheel_translation_in_progress');
                 error_log("[Ewheel WooSync] Prefetch failed: " . $e->getMessage());
-                PersistentLogger::error("[Performance] Prefetch failed (continuing anyway): " . $e->getMessage());
+                PersistentLogger::warning("[Translation] Prefetch failed — products in this batch may appear untranslated: " . $e->getMessage());
             }
         } else {
             error_log("[Ewheel WooSync] Skipping prefetch (EWHEEL_SKIP_TRANSLATION is set)");
@@ -665,9 +715,17 @@ class WooCommerceSync
             $this->brand_service->assign_brand_to_product($product_id, $data['_brand']);
         }
 
+        // Assign compatible model taxonomy terms
+        if (!empty($data['_models'])) {
+            $this->model_service->assign_models_to_product($product_id, $data['_models']);
+        }
+
         // Handle variations for variable products
         if ($product_type === 'variable' && !empty($data['variations'])) {
             $this->variation_service->create_variations($product_id, $data['variations'], $data['attributes'] ?? []);
+
+            // Sync parent price from variation prices so WooCommerce displays price range
+            WC_Product_Variable::sync($product_id);
         }
 
         return $product_id;
@@ -696,9 +754,17 @@ class WooCommerceSync
             $this->brand_service->assign_brand_to_product($product_id, $data['_brand']);
         }
 
+        // Assign compatible model taxonomy terms (update on sync)
+        if (!empty($data['_models'])) {
+            $this->model_service->assign_models_to_product($product_id, $data['_models']);
+        }
+
         // Update variations for variable products
         if ($product instanceof \WC_Product_Variable && !empty($data['variations'])) {
             $this->variation_service->update_variations($product_id, $data['variations'], $data['attributes'] ?? []);
+
+            // Sync parent price from variation prices
+            WC_Product_Variable::sync($product_id);
         }
     }
 

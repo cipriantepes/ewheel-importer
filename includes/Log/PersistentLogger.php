@@ -379,9 +379,10 @@ class PersistentLogger
 
         if ($count > self::MAX_ENTRIES) {
             $to_delete = $count - self::MAX_ENTRIES;
+            // Use subquery for SQLite compatibility (no DELETE...ORDER BY...LIMIT)
             $wpdb->query(
                 $wpdb->prepare(
-                    "DELETE FROM $table_name ORDER BY created_at ASC LIMIT %d",
+                    "DELETE FROM $table_name WHERE id IN (SELECT id FROM $table_name ORDER BY created_at ASC LIMIT %d)",
                     $to_delete
                 )
             );

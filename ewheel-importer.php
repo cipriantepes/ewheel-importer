@@ -243,6 +243,9 @@ final class Ewheel_Importer
         // Brand Taxonomy
         add_action('init', [$this, 'register_product_brand_taxonomy'], 5);
 
+        // Scooter Model Taxonomy
+        add_action('init', [$this, 'register_scooter_model_taxonomy'], 5);
+
         // Product Badges (NEW/Discontinued)
         add_action('woocommerce_before_shop_loop_item_title', [$this, 'render_product_badges'], 10);
         add_action('woocommerce_before_single_product_summary', [$this, 'render_product_badges'], 10);
@@ -2234,6 +2237,42 @@ final class Ewheel_Importer
             'show_in_rest'      => true,
             'query_var'         => true,
             'rewrite'           => ['slug' => 'brand', 'with_front' => false],
+        ]);
+    }
+
+    /**
+     * Register scooter_model taxonomy for WooCommerce products.
+     *
+     * @return void
+     */
+    public function register_scooter_model_taxonomy(): void
+    {
+        if (taxonomy_exists('scooter_model')) {
+            return;
+        }
+
+        $labels = [
+            'name'              => __('Models', 'ewheel-importer'),
+            'singular_name'     => __('Model', 'ewheel-importer'),
+            'search_items'      => __('Search Models', 'ewheel-importer'),
+            'all_items'         => __('All Models', 'ewheel-importer'),
+            'parent_item'       => null,
+            'parent_item_colon' => null,
+            'edit_item'         => __('Edit Model', 'ewheel-importer'),
+            'update_item'       => __('Update Model', 'ewheel-importer'),
+            'add_new_item'      => __('Add New Model', 'ewheel-importer'),
+            'new_item_name'     => __('New Model Name', 'ewheel-importer'),
+            'menu_name'         => __('Models', 'ewheel-importer'),
+        ];
+
+        register_taxonomy('scooter_model', ['product'], [
+            'hierarchical'      => false,
+            'labels'            => $labels,
+            'show_ui'           => true,
+            'show_admin_column' => true,
+            'show_in_rest'      => true,
+            'query_var'         => true,
+            'rewrite'           => ['slug' => 'model', 'with_front' => false],
         ]);
     }
 
