@@ -266,9 +266,11 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                 </label>
                             </th>
                             <td>
+                                <input type="hidden" id="ewheel_importer_openrouter_model_hidden"
+                                    name="ewheel_importer_openrouter_model"
+                                    value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free'); ?>" />
                                 <div style="display: flex; gap: 10px; align-items: flex-start;">
-                                    <select id="ewheel_importer_openrouter_model"
-                                        name="ewheel_importer_openrouter_model" style="min-width: 350px;">
+                                    <select id="ewheel_importer_openrouter_model" style="min-width: 350px;">
                                         <?php
                                         $current_model = $settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free';
                                         ?>
@@ -281,6 +283,14 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                         <span class="dashicons dashicons-update"
                                             style="vertical-align: middle; line-height: 1.3;"></span>
                                     </button>
+                                </div>
+                                <div id="ewheel-custom-model-wrapper" style="display: none; margin-top: 8px;">
+                                    <input type="text" id="ewheel_importer_openrouter_model_custom"
+                                        placeholder="<?php esc_attr_e('e.g. google/gemini-2.5-flash', 'ewheel-importer'); ?>"
+                                        style="min-width: 350px;" />
+                                    <p class="description">
+                                        <?php esc_html_e('Enter the model ID from openrouter.ai/models (e.g. google/gemini-2.5-flash)', 'ewheel-importer'); ?>
+                                    </p>
                                 </div>
                                 <p class="description" id="ewheel-openrouter-model-status">
                                     <?php esc_html_e('Select an LLM model for translations. Free models are listed first.', 'ewheel-importer'); ?>

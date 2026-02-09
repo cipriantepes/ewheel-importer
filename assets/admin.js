@@ -827,24 +827,52 @@
      */
     var OpenRouterModelSelector = {
         $select: null,
+        $hidden: null,
         $refreshBtn: null,
         $status: null,
+        $customWrapper: null,
+        $customInput: null,
         currentModel: '',
 
         init: function () {
             this.$select = $('#ewheel_importer_openrouter_model');
+            this.$hidden = $('#ewheel_importer_openrouter_model_hidden');
             this.$refreshBtn = $('#ewheel-refresh-openrouter-models');
             this.$status = $('#ewheel-openrouter-model-status');
+            this.$customWrapper = $('#ewheel-custom-model-wrapper');
+            this.$customInput = $('#ewheel_importer_openrouter_model_custom');
 
             if (this.$select.length === 0) {
                 return;
             }
 
-            // Store current selected model
-            this.currentModel = this.$select.val();
+            // Store current selected model from hidden input (source of truth)
+            this.currentModel = this.$hidden.val();
 
             // Bind events
             this.$refreshBtn.on('click', this.refreshModels.bind(this));
+
+            // Sync select changes to hidden input; toggle custom input
+            var self = this;
+            this.$select.on('change', function () {
+                var val = $(this).val();
+                if (val === '__other__') {
+                    self.$customWrapper.show();
+                    self.$customInput.focus();
+                } else {
+                    self.$customWrapper.hide();
+                    self.$customInput.val('');
+                    self.$hidden.val(val);
+                }
+            });
+
+            // Sync custom text input to hidden input
+            this.$customInput.on('input', function () {
+                var customVal = $(this).val().trim();
+                if (customVal) {
+                    self.$hidden.val(customVal);
+                }
+            });
 
             // Load models on page load if OpenRouter is selected
             if ($('#ewheel_importer_translation_driver').val() === 'openrouter') {
@@ -852,7 +880,6 @@
             }
 
             // Load models when switching to OpenRouter driver
-            var self = this;
             $('#ewheel_importer_translation_driver').on('change', function () {
                 if ($(this).val() === 'openrouter') {
                     self.loadModels(false);
@@ -920,9 +947,41 @@
                 disabled: true
             }));
 
-            // Group models: Free first, then others
-            var freeModels = models.filter(function (m) { return m.is_free; });
-            var paidModels = models.filter(function (m) { return !m.is_free; });
+            // Recommended models for translation (fast + affordable)
+            var recommendedIds = [
+                'google/gemini-2.5-flash',
+                'google/gemini-2.0-flash-001',
+                'google/gemini-2.0-flash-lite-001',
+                'meta-llama/llama-3.1-8b-instruct:free'
+            ];
+
+            var recommendedModels = models.filter(function (m) {
+                return recommendedIds.indexOf(m.id) !== -1;
+            });
+            // Sort recommended in the order defined above
+            recommendedModels.sort(function (a, b) {
+                return recommendedIds.indexOf(a.id) - recommendedIds.indexOf(b.id);
+            });
+
+            if (recommendedModels.length > 0) {
+                var $recGroup = $('<optgroup>', { label: '\u2B50 Recommended for Translation' });
+                recommendedModels.forEach(function (model) {
+                    $recGroup.append($('<option>', {
+                        value: model.id,
+                        text: model.display_name,
+                        selected: model.id === currentVal
+                    }));
+                });
+                this.$select.append($recGroup);
+            }
+
+            // Group remaining models: Free first, then others
+            var freeModels = models.filter(function (m) {
+                return m.is_free && recommendedIds.indexOf(m.id) === -1;
+            });
+            var paidModels = models.filter(function (m) {
+                return !m.is_free && recommendedIds.indexOf(m.id) === -1;
+            });
 
             if (freeModels.length > 0) {
                 var $freeGroup = $('<optgroup>', { label: ewheelImporter.strings.freeModels || 'Free Models' });
@@ -947,6 +1006,12 @@
                 });
                 this.$select.append($paidGroup);
             }
+
+            // Add "Other" option at the end
+            this.$select.append($('<option>', {
+                value: '__other__',
+                text: '— ' + (ewheelImporter.strings.otherModel || 'Other (type model ID)') + ' —'
+            }));
 
             // If current model is not in the list, add it as a custom option
             if (currentVal && this.$select.find('option[value="' + currentVal + '"]').length === 0) {
