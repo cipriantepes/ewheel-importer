@@ -230,11 +230,26 @@ class EwheelApiClient
      */
     public function get_product_count(array $filters = []): int
     {
+        // The API doesn't return a total count field, so we fetch one large page and count.
+        $products = $this->get_products(0, 1000, $filters);
+
+        return count($products);
+        // Note: if the catalog ever exceeds 1000, this will need pagination.
+    }
+
+    /**
+     * Legacy product count method (unused).
+     *
+     * @param array $filters Optional filters.
+     * @return int The total product count.
+     */
+    private function get_product_count_legacy(array $filters = []): int
+    {
         $body = [
             'productsFilter' => array_merge(
                 [
                     'Page' => 0,
-                    'PageSize' => 1, // Minimal page size
+                    'PageSize' => 1,
                 ],
                 $filters
             ),
@@ -249,8 +264,6 @@ class EwheelApiClient
                 $this->get_headers()
             );
 
-            // Try to extract total count from response metadata
-            // Common API patterns: TotalCount, Total, Count, totalCount, total, count
             $total = $response['TotalCount']
                 ?? $response['totalCount']
                 ?? $response['Total']
@@ -265,12 +278,9 @@ class EwheelApiClient
                 return (int) $total;
             }
 
-            // Fallback: count actual products (less reliable for total)
             $data = $this->extract_data($response);
 
-            // If we got a full page, there might be more - estimate based on MAX_PAGES
             if (count($data) === 1) {
-                // We can't determine total, return -1 to indicate unknown
                 return -1;
             }
 
