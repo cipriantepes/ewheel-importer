@@ -14,7 +14,7 @@
             this.bindEvents();
             this.checkInitialStatus();
             this.checkQueueStatus();
-            this.refreshProductCount(); // Auto-load product count
+            this.loadCachedProductCount(); // Load cached count without hitting API
         },
 
         bindEvents: function () {
@@ -181,6 +181,7 @@
             e.preventDefault();
             var self = this;
             var limit = $('#ewheel-sync-limit').val() || 0;
+            var resumeFromLast = $('#ewheel-resume-from-last').is(':checked') ? 1 : 0;
 
             this.updateSyncUI('running', null);
 
@@ -190,7 +191,8 @@
                 data: {
                     action: 'ewheel_run_sync',
                     nonce: ewheelImporter.nonce,
-                    limit: limit
+                    limit: limit,
+                    resume_from_last: resumeFromLast
                 },
                 success: function (response) {
                     if (response.success) {
@@ -297,10 +299,7 @@
                 success: function (response) {
                     if (response.success) {
                         // Stop any active polling
-                        if (self.pollInterval) {
-                            clearInterval(self.pollInterval);
-                            self.pollInterval = null;
-                        }
+                        self.stopPolling();
 
                         // Reset cancel attempts
                         self.cancelAttempts = 0;
@@ -309,9 +308,16 @@
                         // Update UI to stopped state immediately
                         self.updateSyncUI('stopped', {});
 
-                        // Stop log polling after a delay to get final logs
+                        // Final log update after delay
                         setTimeout(function () {
-                            self.stopLogPolling();
+                            $.post(ewheelImporter.ajaxUrl, {
+                                action: 'ewheel_get_logs',
+                                nonce: ewheelImporter.nonce
+                            }, function (logResponse) {
+                                if (logResponse.success && logResponse.data) {
+                                    self._updateLogConsole(logResponse.data);
+                                }
+                            });
                         }, 3000);
 
                         if (forceMode) {
@@ -332,179 +338,210 @@
             });
         },
 
-        logPollInterval: null,
-        logErrorCount: 0,
-        statusErrorCount: 0,
-        maxConsecutiveErrors: 3,
+        _pollErrorCount: 0,
+        maxConsecutiveErrors: 10,
+
+        // Combined polling configuration (status + logs in single request)
+        _pollInterval: 8000,
+        _pollIntervalBase: 8000,
+        _maxInterval: 60000,
+        _pollTimer: null,
+        _pollPending: false,
+        _pollActive: false,
+        _visibilityHandler: null,
+
+        _restartPollTimer: function () {
+            var self = this;
+            if (this._pollTimer) clearInterval(this._pollTimer);
+            this._pollTimer = setInterval(function () {
+                self._pollCombined();
+            }, this._pollInterval);
+        },
 
         startPolling: function () {
             var self = this;
 
-            // Reset error counters
-            this.statusErrorCount = 0;
+            // Reset error counter and interval
+            this._pollErrorCount = 0;
+            this._pollInterval = this._pollIntervalBase;
 
-            // Clear any existing intervals
-            if (this.pollInterval) {
-                clearInterval(this.pollInterval);
+            // Clear any existing timer
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
             }
 
-            // Start separate log polling
-            this.startLogPolling();
+            // Immediate first poll
+            this._pollCombined();
+            this._restartPollTimer();
 
-            this.pollInterval = setInterval(function () {
-                // Skip if a status request is already in flight
-                if (self._statusPending) return;
-                self._statusPending = true;
-                $.ajax({
-                    url: ewheelImporter.ajaxUrl,
-                    type: 'POST',
-                    data: {
-                        action: 'ewheel_get_sync_status',
-                        nonce: ewheelImporter.nonce
-                    },
-                    success: function (response) {
-                        self._statusPending = false;
-                        // Reset error counter on success
-                        self.statusErrorCount = 0;
-
-                        if (response.success && response.data) {
-                            var data = response.data;
-                            var status = data.status;
-
-                            // Store sync_id for cancel operations
-                            if (data.id) {
-                                self.currentSyncId = data.id;
-                            }
-
-                            // Stop polling if no active sync (empty/idle/undefined status)
-                            if (!status || status === 'idle' || status === 'completed' || status === 'failed' || status === 'stopped') {
-                                clearInterval(self.pollInterval);
-                                self.pollInterval = null;
-                                self.currentSyncId = null;
-
-                                // Update UI based on final status
-                                if (status === 'completed') {
-                                    self.updateSyncUI('completed', data);
-                                } else if (status === 'stopped') {
-                                    self.updateSyncUI('stopped', data);
-                                } else if (status === 'failed') {
-                                    self.updateSyncUI('failed', data);
-                                } else {
-                                    self.updateSyncUI('idle', data);
-                                }
-
-                                // Stop log polling after a delay (let final logs come through)
-                                setTimeout(function () {
-                                    self.stopLogPolling();
-                                }, 5000);
-
-                                // Reload page on completion after a delay
-                                if (status === 'completed') {
-                                    setTimeout(function () {
-                                        location.reload();
-                                    }, 3000);
-                                }
-                                return;
-                            }
-
-                            // Update UI for active states
-                            if (status === 'paused') {
-                                clearInterval(self.pollInterval);
-                                self.pollInterval = null;
-                                self.updateSyncUI('paused', data);
-                                // Keep log polling active when paused
-                                return;
-                            }
-
-                            self.updateSyncUI(status, data);
-                        } else {
-                            // No data or error - stop polling
-                            clearInterval(self.pollInterval);
-                            self.pollInterval = null;
-                            self.updateSyncUI('idle', {});
-                            self.stopLogPolling();
-                        }
-                    },
-                    error: function (xhr, status, error) {
-                        self._statusPending = false;
-                        self.statusErrorCount++;
-                        console.warn('[Ewheel] Status poll error (' + self.statusErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
-
-                        if (self.statusErrorCount >= self.maxConsecutiveErrors) {
-                            clearInterval(self.pollInterval);
-                            self.pollInterval = null;
-                            self.stopLogPolling();
-                            $('#ewheel-sync-status').text('Connection lost. Refresh page to resume.');
-                            console.error('[Ewheel] Stopped polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
-                        }
+            // Pause when tab is hidden, resume when visible
+            this._visibilityHandler = function () {
+                if (document.visibilityState === 'hidden') {
+                    if (self._pollTimer) {
+                        clearInterval(self._pollTimer);
+                        self._pollTimer = null;
                     }
-                });
-            }, 5000);
+                } else {
+                    // Tab visible again - poll immediately and restart timer
+                    if (self._pollTimer === null && self._pollActive) {
+                        self._pollCombined();
+                        self._restartPollTimer();
+                    }
+                }
+            };
+            document.addEventListener('visibilitychange', this._visibilityHandler);
+            this._pollActive = true;
         },
 
-        startLogPolling: function () {
-            var self = this;
-
-            // Reset error counter
-            this.logErrorCount = 0;
-
-            // Clear any existing log interval
-            if (this.logPollInterval) {
-                clearInterval(this.logPollInterval);
+        stopPolling: function () {
+            this._pollActive = false;
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
             }
-
-            // Fetch immediately
-            this.fetchLogs();
-
-            // Poll every 5 seconds (staggered from status poll to reduce server load)
-            this.logPollInterval = setInterval(function () {
-                self.fetchLogs();
-            }, 5000);
-        },
-
-        stopLogPolling: function () {
-            if (this.logPollInterval) {
-                clearInterval(this.logPollInterval);
-                this.logPollInterval = null;
+            if (this._visibilityHandler) {
+                document.removeEventListener('visibilitychange', this._visibilityHandler);
+                this._visibilityHandler = null;
             }
         },
 
-        fetchLogs: function () {
+        _pollCombined: function () {
             var self = this;
-            var $logConsole = $('#ewheel-activity-log');
-            if ($logConsole.length === 0) return;
+
+            // In-flight guard
+            if (self._pollPending) return;
+            self._pollPending = true;
 
             $.ajax({
                 url: ewheelImporter.ajaxUrl,
                 type: 'POST',
+                timeout: 15000,
                 data: {
-                    action: 'ewheel_get_logs',
+                    action: 'ewheel_get_sync_combined',
                     nonce: ewheelImporter.nonce
                 },
                 success: function (response) {
-                    // Reset error counter on success
-                    self.logErrorCount = 0;
+                    self._pollPending = false;
+
+                    // Restore normal interval on success after backoff
+                    if (self._pollErrorCount > 0) {
+                        self._pollInterval = self._pollIntervalBase;
+                        self._restartPollTimer();
+                    }
+                    self._pollErrorCount = 0;
 
                     if (response.success && response.data) {
-                        var logs = response.data;
-                        var html = '';
-                        logs.forEach(function (log) {
-                            var color = log.type === 'error' ? 'red' : (log.type === 'success' ? 'green' : 'black');
-                            html += '<div style="color:' + color + '; margin-bottom: 2px;">[' + log.time + '] ' + log.message + '</div>';
-                        });
-                        $logConsole.html(html);
+                        // Update status UI from response.data.status
+                        var statusData = response.data.status;
+                        var status = statusData.status;
+
+                        // Store sync_id for cancel operations
+                        if (statusData.id) {
+                            self.currentSyncId = statusData.id;
+                        }
+
+                        // Update log console from response.data.logs
+                        self._updateLogConsole(response.data.logs);
+
+                        // Stop polling if no active sync
+                        if (!status || status === 'idle' || status === 'completed' || status === 'failed' || status === 'stopped') {
+                            self.stopPolling();
+                            self.currentSyncId = null;
+
+                            // Update UI based on final status
+                            if (status === 'completed') {
+                                self.updateSyncUI('completed', statusData);
+                            } else if (status === 'stopped') {
+                                self.updateSyncUI('stopped', statusData);
+                            } else if (status === 'failed') {
+                                self.updateSyncUI('failed', statusData);
+                            } else {
+                                self.updateSyncUI('idle', statusData);
+                            }
+
+                            // Final log update after delay
+                            setTimeout(function () {
+                                $.post(ewheelImporter.ajaxUrl, {
+                                    action: 'ewheel_get_logs',
+                                    nonce: ewheelImporter.nonce
+                                }, function (logResponse) {
+                                    if (logResponse.success && logResponse.data) {
+                                        self._updateLogConsole(logResponse.data);
+                                    }
+                                });
+                            }, 5000);
+
+                            // Reload page on completion after a delay
+                            if (status === 'completed') {
+                                setTimeout(function () {
+                                    location.reload();
+                                }, 3000);
+                            }
+                            return;
+                        }
+
+                        // Update UI for active states
+                        if (status === 'paused') {
+                            self.stopPolling();
+                            self.updateSyncUI('paused', statusData);
+                            return;
+                        }
+
+                        self.updateSyncUI(status, statusData);
+                    } else {
+                        // No data or error - stop polling
+                        self.stopPolling();
+                        self.updateSyncUI('idle', {});
                     }
                 },
                 error: function (xhr, status, error) {
-                    self.logErrorCount++;
-                    console.warn('[Ewheel] Log fetch error (' + self.logErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
+                    self._pollPending = false;
+                    self._pollErrorCount++;
 
-                    if (self.logErrorCount >= self.maxConsecutiveErrors) {
-                        self.stopLogPolling();
-                        console.error('[Ewheel] Stopped log polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
+                    var httpStatus = xhr.status || 0;
+                    console.warn('[Ewheel] Combined poll error (' + self._pollErrorCount + '/' + self.maxConsecutiveErrors + '): ' + httpStatus + ' ' + error);
+
+                    // On 503/5xx - backoff instead of stopping
+                    if (httpStatus >= 500 || httpStatus === 0) {
+                        self._pollInterval = Math.min(self._pollInterval * 2, self._maxInterval);
+                        self._restartPollTimer();
+                        console.info('[Ewheel] Combined poll backing off to ' + (self._pollInterval / 1000) + 's');
+                    }
+
+                    if (self._pollErrorCount >= self.maxConsecutiveErrors) {
+                        self.stopPolling();
+                        $('#ewheel-sync-status').text('Connection lost. Refresh page to resume.');
+                        console.error('[Ewheel] Stopped polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
                     }
                 }
             });
+        },
+
+        _updateLogConsole: function (logs) {
+            var $logConsole = $('#ewheel-activity-log');
+            if ($logConsole.length === 0) return;
+
+            if (logs && logs.length > 0) {
+                var html = '';
+                logs.forEach(function (log) {
+                    var color = log.type === 'error' ? 'red' : (log.type === 'success' ? 'green' : 'black');
+                    html += '<div style="color:' + color + '; margin-bottom: 2px;">[' + log.time + '] ' + log.message + '</div>';
+                });
+                $logConsole.html(html);
+            }
+        },
+
+        // Stub methods for backwards compatibility
+        startLogPolling: function () {
+            // No-op - now handled by combined polling
+        },
+
+        stopLogPolling: function () {
+            // No-op - now handled by stopPolling
+        },
+
+        fetchLogs: function () {
+            // No-op - now handled by combined polling
         },
 
         // Profile-specific sync methods
@@ -698,53 +735,90 @@
         },
 
         profilePollErrorCount: 0,
+        _profileInterval: 5000,
+        _profileIntervalBase: 5000,
 
         startProfilePolling: function (profileId) {
             var self = this;
 
-            // Reset error counter
+            // Reset error counter and interval
             this.profilePollErrorCount = 0;
+            this._profileInterval = this._profileIntervalBase;
 
             if (this.profilePollInterval) {
                 clearInterval(this.profilePollInterval);
             }
 
+            this._restartProfilePoll(profileId);
+        },
+
+        _restartProfilePoll: function (profileId) {
+            var self = this;
+            if (this.profilePollInterval) clearInterval(this.profilePollInterval);
+            this._currentProfilePollId = profileId;
             this.profilePollInterval = setInterval(function () {
-                $.ajax({
-                    url: ewheelImporter.ajaxUrl,
-                    type: 'POST',
-                    data: {
-                        action: 'ewheel_get_sync_status',
-                        nonce: ewheelImporter.nonce,
-                        profile_id: profileId
-                    },
-                    success: function (response) {
-                        // Reset error counter on success
-                        self.profilePollErrorCount = 0;
+                self._pollProfile(profileId);
+            }, this._profileInterval);
+        },
 
-                        if (response.success) {
-                            var data = response.data;
-                            self.updateProfileSyncUI(data.status, data);
+        _pollProfile: function (profileId) {
+            var self = this;
 
-                            if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped' || data.status === 'paused') {
-                                clearInterval(self.profilePollInterval);
-                                self.profilePollInterval = null;
-                            }
-                        }
-                    },
-                    error: function (xhr, status, error) {
-                        self.profilePollErrorCount++;
-                        console.warn('[Ewheel] Profile poll error (' + self.profilePollErrorCount + '/' + self.maxConsecutiveErrors + '): ' + (xhr.status || 'network') + ' ' + error);
+            // In-flight guard
+            if (self._profilePending) return;
+            self._profilePending = true;
 
-                        if (self.profilePollErrorCount >= self.maxConsecutiveErrors) {
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                timeout: 15000,
+                data: {
+                    action: 'ewheel_get_sync_status',
+                    nonce: ewheelImporter.nonce,
+                    profile_id: profileId
+                },
+                success: function (response) {
+                    self._profilePending = false;
+
+                    // Restore normal interval on success after backoff
+                    if (self.profilePollErrorCount > 0) {
+                        self._profileInterval = self._profileIntervalBase;
+                        self._restartProfilePoll(profileId);
+                    }
+                    self.profilePollErrorCount = 0;
+
+                    if (response.success) {
+                        var data = response.data;
+                        self.updateProfileSyncUI(data.status, data);
+
+                        if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped' || data.status === 'paused') {
                             clearInterval(self.profilePollInterval);
                             self.profilePollInterval = null;
-                            self.updateProfileSyncUI('idle', {});
-                            console.error('[Ewheel] Stopped profile polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
                         }
                     }
-                });
-            }, 5000);
+                },
+                error: function (xhr, status, error) {
+                    self._profilePending = false;
+                    self.profilePollErrorCount++;
+
+                    var httpStatus = xhr.status || 0;
+                    console.warn('[Ewheel] Profile poll error (' + self.profilePollErrorCount + '/' + self.maxConsecutiveErrors + '): ' + httpStatus + ' ' + error);
+
+                    // On 503/5xx — backoff instead of stopping
+                    if (httpStatus >= 500 || httpStatus === 0) {
+                        self._profileInterval = Math.min(self._profileInterval * 2, self._maxInterval);
+                        self._restartProfilePoll(profileId);
+                        console.info('[Ewheel] Profile poll backing off to ' + (self._profileInterval / 1000) + 's');
+                    }
+
+                    if (self.profilePollErrorCount >= self.maxConsecutiveErrors) {
+                        clearInterval(self.profilePollInterval);
+                        self.profilePollInterval = null;
+                        self.updateProfileSyncUI('idle', {});
+                        console.error('[Ewheel] Stopped profile polling after ' + self.maxConsecutiveErrors + ' consecutive errors');
+                    }
+                }
+            });
         },
 
         testConnection: function (e) {
@@ -791,6 +865,23 @@
             });
         },
 
+        loadCachedProductCount: function () {
+            var $count = $('#ewheel-product-count');
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_product_count',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        $count.text(response.data.formatted);
+                    }
+                }
+            });
+        },
+
         refreshProductCount: function (e) {
             if (e) e.preventDefault();
 
@@ -806,7 +897,8 @@
                 type: 'POST',
                 data: {
                     action: 'ewheel_get_product_count',
-                    nonce: ewheelImporter.nonce
+                    nonce: ewheelImporter.nonce,
+                    force: 1
                 },
                 success: function (response) {
                     $button.prop('disabled', false);

@@ -443,6 +443,24 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                             <?php esc_html_e('(0 for all)', 'ewheel-importer'); ?>
                         </span>
                     </p>
+                    <?php
+                    $prev_page = isset($current_status['page']) ? (int) $current_status['page'] : 0;
+                    $prev_processed = isset($current_status['processed']) ? (int) $current_status['processed'] : 0;
+                    $prev_status_val = $current_status['status'] ?? '';
+                    $can_resume = $prev_page > 0 && in_array($prev_status_val, ['completed', 'stopped', 'failed'], true);
+                    ?>
+                    <p id="ewheel-resume-option" style="<?php echo esc_attr($can_resume ? '' : 'display:none;'); ?>">
+                        <label>
+                            <input type="checkbox" id="ewheel-resume-from-last">
+                            <?php
+                            printf(
+                                esc_html__('Resume from page %1$d (%2$d products already processed)', 'ewheel-importer'),
+                                $prev_page + 1,
+                                $prev_processed
+                            );
+                            ?>
+                        </label>
+                    </p>
                     <p id="ewheel-sync-controls">
                         <!-- Run button: shown when idle -->
                         <button type="button" id="ewheel-run-sync" class="button button-primary"

@@ -196,10 +196,11 @@ class SyncLauncher
      *
      * @param int      $limit      Optional limit of products to sync. 0 for unlimited.
      * @param int|null $profile_id Optional profile ID.
+     * @param int      $start_page Page to start from (0 for fresh, >0 to resume from position).
      * @return string Sync ID.
      * @throws \Exception If a sync is already running.
      */
-    public function start_sync(int $limit = 0, ?int $profile_id = null): string
+    public function start_sync(int $limit = 0, ?int $profile_id = null, int $start_page = 0): string
     {
         $sync_id = uniqid('sync_');
 
@@ -226,7 +227,7 @@ class SyncLauncher
                 'created' => 0,
                 'updated' => 0,
                 'failed' => 0,
-                'page' => 0,
+                'page' => $start_page,
                 'limit' => $limit,
                 'type' => 'full',
                 'profile_id' => $profile_id,
@@ -241,7 +242,7 @@ class SyncLauncher
             time() + 1,
             'ewheel_importer_process_batch',
             [
-                'page' => 0,
+                'page' => $start_page,
                 'sync_id' => $sync_id,
                 'since' => '',
                 'profile_id' => $profile_id,

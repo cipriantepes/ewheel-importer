@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.0.6
+ * Version:           2.1.2
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.0.6');
+define('EWHEEL_IMPORTER_VERSION', '2.1.2');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -78,6 +78,13 @@ final class Ewheel_Importer
     private ServiceContainer $container;
 
     /**
+     * Update checker instance.
+     *
+     * @var object|null
+     */
+    private $updateChecker = null;
+
+    /**
      * Get the singleton instance.
      *
      * @return Ewheel_Importer
@@ -95,6 +102,9 @@ final class Ewheel_Importer
      */
     private function __construct()
     {
+        // Updater must run regardless of requirements so updates are always available
+        $this->init_updater();
+
         $this->container = ServiceFactory::build_container();
         $this->config = $this->container->get(Configuration::class);
 
@@ -103,7 +113,6 @@ final class Ewheel_Importer
         }
 
         $this->init_hooks();
-        $this->init_updater();
     }
 
     /**
@@ -114,14 +123,25 @@ final class Ewheel_Importer
     private function init_updater(): void
     {
         if (class_exists(PucFactory::class)) {
-            $myUpdateChecker = PucFactory::buildUpdateChecker(
+            $this->updateChecker = PucFactory::buildUpdateChecker(
                 self::GITHUB_REPO,
                 EWHEEL_IMPORTER_FILE,
                 'ewheel-importer'
             );
 
-            // Optional: Set the branch that contains the stable release.
-            $myUpdateChecker->getVcsApi()->enableReleaseAssets();
+            $this->updateChecker->getVcsApi()->enableReleaseAssets();
+
+            // Log update check results for debugging
+            $this->updateChecker->addResultFilter(function ($info) {
+                if ($info !== null && isset($info->version)) {
+                    error_log('[Ewheel Updater] Found remote version: ' . $info->version . ' (installed: ' . EWHEEL_IMPORTER_VERSION . ')');
+                } else {
+                    error_log('[Ewheel Updater] No update info returned from GitHub');
+                }
+                return $info;
+            });
+        } else {
+            error_log('[Ewheel Updater] PucFactory class not found — vendor autoloader may be broken');
         }
     }
 
@@ -197,6 +217,7 @@ final class Ewheel_Importer
         add_action('wp_ajax_ewheel_resume_sync', [$this, 'ajax_resume_sync']);
         add_action('wp_ajax_ewheel_test_connection', [$this, 'ajax_test_connection']);
         add_action('wp_ajax_ewheel_get_logs', [$this, 'ajax_get_logs']);
+        add_action('wp_ajax_ewheel_get_sync_combined', [$this, 'ajax_get_sync_combined']);
         add_action('wp_ajax_ewheel_get_sync_history', [$this, 'ajax_get_sync_history']);
         add_action('wp_ajax_ewheel_get_persistent_logs', [$this, 'ajax_get_persistent_logs']);
         add_action('wp_ajax_ewheel_clear_logs', [$this, 'ajax_clear_logs']);
@@ -312,18 +333,22 @@ final class Ewheel_Importer
             return;
         }
 
+        // Cache busting: append file modification time to version
+        $js_version = EWHEEL_IMPORTER_VERSION . '.' . filemtime(EWHEEL_IMPORTER_PATH . 'assets/admin.js');
+        $css_version = EWHEEL_IMPORTER_VERSION . '.' . filemtime(EWHEEL_IMPORTER_PATH . 'assets/admin.css');
+
         wp_enqueue_style(
             'ewheel-importer-admin',
             EWHEEL_IMPORTER_URL . 'assets/admin.css',
             [],
-            EWHEEL_IMPORTER_VERSION
+            $css_version
         );
 
         wp_enqueue_script(
             'ewheel-importer-admin',
             EWHEEL_IMPORTER_URL . 'assets/admin.js',
             ['jquery'],
-            EWHEEL_IMPORTER_VERSION,
+            $js_version,
             true
         );
 
@@ -608,15 +633,28 @@ final class Ewheel_Importer
         try {
             $limit = isset($_POST['limit']) ? (int) $_POST['limit'] : 0;
             $profile_id = isset($_POST['profile_id']) ? (int) $_POST['profile_id'] : null;
+            $resume_from_last = !empty($_POST['resume_from_last']);
 
-            error_log("Ewheel Importer: Starting Sync (Limit: $limit, Profile: " . ($profile_id ?? 'Default') . ")");
+            // Determine start page (resume from previous sync position or start fresh)
+            $start_page = 0;
+            if ($resume_from_last) {
+                $status_key = $profile_id
+                    ? 'ewheel_importer_sync_status_' . $profile_id
+                    : 'ewheel_importer_sync_status';
+                $prev_status = get_option($status_key, []);
+                if (!empty($prev_status['page'])) {
+                    $start_page = (int) $prev_status['page'] + 1;
+                }
+            }
+
+            error_log("Ewheel Importer: Starting Sync (Limit: $limit, Profile: " . ($profile_id ?? 'Default') . ", Start Page: $start_page)");
 
             // Pre-sync diagnostics
             $this->log_sync_diagnostics($profile_id);
 
             // Re-use launcher directly or through factory
             $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
-            $sync_id = $launcher->start_sync($limit, $profile_id);
+            $sync_id = $launcher->start_sync($limit, $profile_id, $start_page);
 
             error_log("Ewheel Importer: Sync Scheduled with ID $sync_id");
 
@@ -756,6 +794,71 @@ final class Ewheel_Importer
         }
 
         wp_send_json_success(\Trotibike\EwheelImporter\Log\LiveLogger::get_logs());
+    }
+
+    /**
+     * AJAX Get Sync Combined (Status + Logs).
+     *
+     * Combined endpoint that returns both sync status and logs in a single response
+     * to reduce PHP worker usage on shared hosting.
+     *
+     * @return void
+     */
+    public function ajax_get_sync_combined(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')], 403);
+        }
+
+        // Get status data (same logic as ajax_get_sync_status)
+        $profile_id = isset($_POST['profile_id']) ? absint($_POST['profile_id']) : null;
+        if ($profile_id === 0) {
+            $profile_id = null;
+        }
+
+        $status_key = $profile_id
+            ? 'ewheel_importer_sync_status_' . $profile_id
+            : 'ewheel_importer_sync_status';
+
+        $status = get_option($status_key, []);
+
+        // Check launcher for running state
+        $launcher = $this->container->get(\Trotibike\EwheelImporter\Sync\SyncLauncher::class);
+        $is_running = $launcher->is_sync_running($profile_id);
+        $is_paused = $launcher->is_sync_paused($profile_id);
+
+        // Build status response
+        $status_data = [
+            'status' => $is_running ? 'running' : ($is_paused ? 'paused' : ($status['status'] ?? 'idle')),
+            'is_running' => $is_running,
+            'is_paused' => $is_paused,
+            'id' => $status['id'] ?? null,
+            'processed' => $status['processed'] ?? 0,
+            'created' => $status['created'] ?? 0,
+            'updated' => $status['updated'] ?? 0,
+            'failed' => $status['failed'] ?? 0,
+            'page' => $status['page'] ?? 0,
+            'limit' => $status['limit'] ?? 0,
+            'type' => $status['type'] ?? 'full',
+            'started_at' => $status['started_at'] ?? null,
+            'last_update' => $status['last_update'] ?? null,
+            'completed_at' => $status['completed_at'] ?? null,
+            'batch_size' => $status['batch_size'] ?? 10,
+            'failure_count' => $status['failure_count'] ?? 0,
+        ];
+
+        // Get logs data (same logic as ajax_get_logs)
+        $logs = [];
+        if (class_exists(\Trotibike\EwheelImporter\Log\LiveLogger::class)) {
+            $logs = \Trotibike\EwheelImporter\Log\LiveLogger::get_logs();
+        }
+
+        wp_send_json_success([
+            'status' => $status_data,
+            'logs' => $logs,
+        ]);
     }
 
     /**
@@ -1020,17 +1123,34 @@ final class Ewheel_Importer
             wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
         }
 
+        $force = !empty($_POST['force']);
+        $cache_key = 'ewheel_product_count_cache';
+
+        // Try cached value first (unless forced refresh)
+        if (!$force) {
+            $cached = get_transient($cache_key);
+            if ($cached !== false) {
+                wp_send_json_success([
+                    'count' => (int) $cached,
+                    'formatted' => number_format((int) $cached),
+                    'cached' => true,
+                ]);
+            }
+        }
+
         try {
-            // Create client
-            $config = $this->container->get(\Trotibike\EwheelImporter\Config\Configuration::class);
             $client = $this->container->get(\Trotibike\EwheelImporter\Api\EwheelApiClient::class);
 
             $filters = [];
             $count = $client->get_product_count($filters);
 
+            // Cache for 1 hour
+            set_transient($cache_key, $count, HOUR_IN_SECONDS);
+
             wp_send_json_success([
                 'count' => $count,
                 'formatted' => number_format($count),
+                'cached' => false,
             ]);
 
         } catch (\Exception $e) {

@@ -141,7 +141,7 @@ class EwheelApiClient
      * @param array $filters   Optional filters (active, hasImages, hasVariants, category, etc).
      * @return array The products (extracted from Data wrapper).
      */
-    public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = []): array
+    public function get_products(int $page = 0, int $page_size = self::DEFAULT_PAGE_SIZE, array $filters = [], bool $silent = false): array
     {
         // Per Swagger: Page, PageSize, NewerThan are query params; body is the filter object
         $query_params = [
@@ -160,7 +160,9 @@ class EwheelApiClient
         // Body contains filter fields: hasImages, active, category, productReference, etc.
         $body = !empty($filters) ? $filters : new \stdClass();
 
-        \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Request: POST {$url}, body=" . wp_json_encode($body));
+        if (!$silent) {
+            \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Request: POST {$url}, body=" . wp_json_encode($body));
+        }
         \Trotibike\EwheelImporter\Log\LiveLogger::log("API Request: POST {$url} (Page: {$page})", 'info');
 
         try {
@@ -174,7 +176,9 @@ class EwheelApiClient
             $products = $this->extract_data($response);
 
             $count = count($products);
-            \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Response: HTTP success, products={$count}");
+            if (!$silent) {
+                \Trotibike\EwheelImporter\Log\PersistentLogger::info("API Response: HTTP success, products={$count}");
+            }
             \Trotibike\EwheelImporter\Log\LiveLogger::log("API Response: {$count} products on page {$page}", 'info');
 
             if ($count === 0) {
@@ -246,7 +250,7 @@ class EwheelApiClient
         $max_pages = 200; // Safety limit (~10,000 products)
 
         do {
-            $products = $this->get_products($page, $page_size, $filters);
+            $products = $this->get_products($page, $page_size, $filters, true);
             $count = count($products);
             $total += $count;
             $page++;

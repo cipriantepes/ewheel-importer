@@ -22,9 +22,9 @@ class SyncBatchProcessor
 
     /**
      * Default batch size.
-     * WP All Import uses 20, we use 10 due to heavier processing (translations, images).
+     * WP All Import uses 20, we use 5 for shared hosting compatibility.
      */
-    private const DEFAULT_BATCH_SIZE = 10;
+    private const DEFAULT_BATCH_SIZE = 5;
 
     /**
      * Minimum batch size before giving up.
@@ -194,23 +194,29 @@ class SyncBatchProcessor
                 return;
             }
 
-            // On first batch, do deferred initialization and sync categories
-            if ($page === 0) {
-                // Determine sync type from status
+            // Create history record on first batch (deferred from start_sync for faster response)
+            $history_created = !empty($status['history_created']);
+            if (!$history_created) {
                 $sync_type = ($status['type'] ?? 'full') === 'incremental'
                     ? SyncHistoryManager::TYPE_INCREMENTAL
                     : SyncHistoryManager::TYPE_FULL;
 
-                // Create history record (deferred from start_sync for faster response)
                 SyncHistoryManager::create($sync_id, $sync_type, $profile_id);
 
                 // Log sync start
-                $sync_label = $sync_type === SyncHistoryManager::TYPE_INCREMENTAL
-                    ? sprintf('Incremental sync started (since: %s, Profile: %s)', $status['since'] ?? 'unknown', $profile_config->get_profile_name())
-                    : sprintf('Sync started (Profile: %s)', $profile_config->get_profile_name());
+                $sync_label = $page > 0
+                    ? sprintf('Sync resumed from page %d (Profile: %s)', $page, $profile_config->get_profile_name())
+                    : ($sync_type === SyncHistoryManager::TYPE_INCREMENTAL
+                        ? sprintf('Incremental sync started (since: %s, Profile: %s)', $status['since'] ?? 'unknown', $profile_config->get_profile_name())
+                        : sprintf('Sync started (Profile: %s)', $profile_config->get_profile_name()));
                 PersistentLogger::info($sync_label, null, $sync_id, $profile_id);
 
-                // Sync categories before products
+                $status['history_created'] = true;
+                update_option($this->get_status_key($profile_id), $status);
+            }
+
+            // On fresh sync (page 0), sync categories before products
+            if ($page === 0) {
                 PersistentLogger::info('Syncing categories before products...', null, $sync_id, $profile_id);
                 try {
                     $category_map = $this->woo_sync->sync_categories();
@@ -329,7 +335,7 @@ class SyncBatchProcessor
 
             if ($current_processed >= $batch_size && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
-                    time() + 5, // 5 seconds delay to be nice to the server
+                    time() + 15, // 15 seconds delay for shared hosting compatibility
                     'ewheel_importer_process_batch',
                     [
                         'page' => $page + 1,
