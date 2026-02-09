@@ -22,6 +22,97 @@ class ModelService
     public const TAXONOMY = 'scooter_model';
 
     /**
+     * Known model ID → scooter name mapping.
+     * Scraped from ewheel.es product catalog (single-model products only).
+     */
+    public const MODEL_NAMES = [
+        '1'   => 'Ninebot ES2',
+        '2'   => 'Ninebot ES4',
+        '3'   => 'Ninebot ES1',
+        '7'   => 'Xiaomi Pro 2',
+        '8'   => 'Xiaomi Mi 3',
+        '13'  => 'Xiaomi Pro',
+        '14'  => 'Ninebot MAX G30',
+        '25'  => 'Dualtron Speedway 4',
+        '26'  => 'SmartGyro Rockway Pro V2.0',
+        '29'  => 'Ninebot KickScooter MAX G2',
+        '52'  => 'Xiaomi Mi 4 Pro (1st Gen)',
+        '57'  => 'Ninebot F2',
+        '59'  => 'SmartGyro SpeedWay PRO',
+        '62'  => 'Wispeed T850',
+        '67'  => 'Ninebot KickScooter E22',
+        '68'  => 'Ninebot KickScooter E25',
+        '69'  => 'Ninebot KickScooter E45',
+        '71'  => 'Dualtron Mini',
+        '79'  => 'Dualtron Thunder',
+        '80'  => 'Dualtron Raptor',
+        '81'  => 'Dualtron Thunder 2',
+        '82'  => 'Dualtron Compact',
+        '83'  => 'Dualtron Storm',
+        '85'  => 'Dualtron Spider',
+        '87'  => 'Dualtron Speedway',
+        '88'  => 'Dualtron Achilleus',
+        '90'  => 'Dualtron Eagle',
+        '91'  => 'Dualtron Eagle',
+        '93'  => 'Dualtron 3',
+        '95'  => 'Dualtron Storm',
+        '96'  => 'Dualtron Victor Luxury',
+        '102' => 'Xiaomi Mi 3 Lite',
+        '110' => 'Xiaomi Mi 4 Lite',
+        '112' => 'Dualtron Thunder',
+        '113' => 'Dualtron Victor',
+        '116' => 'Dualtron Raptor',
+        '117' => 'Dualtron Victor Luxury Plus',
+        '118' => 'NIU KQi3',
+        '119' => 'NIU KQi2 Pro',
+        '120' => 'NIU KQi1',
+        '122' => 'Xiaomi Mi 4',
+        '124' => 'Kukirin G2 Max',
+        '125' => 'Kukirin G3 Pro',
+        '127' => 'Xiaomi Mi 4 Ultra',
+        '129' => 'NIU KQi3 Max',
+        '130' => 'NIU KQi3 Pro',
+        '140' => 'Dualtron Mini',
+        '146' => 'Dualtron Speedway 5 Dual Motor',
+        '147' => 'Xiaomi Mi 4 GO',
+        '152' => 'Dualtron Mini Special Long Body Single Motor',
+        '153' => 'Dualtron Mini Special Long Body Dual Motor',
+        '158' => 'Dualtron Popular Dual Motor',
+        '159' => 'Dualtron Popular Single Motor',
+        '204' => 'Ninebot KickScooter MAX G2',
+        '205' => 'Ninebot KickScooter MAX G2 D',
+        '243' => 'Wispeed T850',
+        '327' => 'Kugoo G2 Pro',
+        '444' => 'Navee N40',
+        '452' => 'Navee N65',
+        '459' => 'Xiaomi Mi 4 Lite (2nd Generation)',
+        '485' => 'Xiaomi Mi 4 Pro (2nd Generation)',
+        '486' => 'Xiaomi Mi 4 Pro Max',
+        '899' => 'Xiaomi Mi 4 - Versión FR',
+        '920' => 'Niu KQi300X',
+        '921' => 'Niu KQi4 Sport',
+        '923' => 'Niu KQi AIR',
+        '924' => 'Niu KQi300P',
+        '925' => 'Niu KQi100',
+        '926' => 'Niu KQi3 Sport',
+        '932' => 'Wispeed T865',
+        '934' => 'Ninebot F3 E',
+        '937' => 'Ninebot F3 E',
+        '947' => 'Ninebot ZT3 Pro EU',
+        '956' => 'Niu KQi1 Pro',
+        '961' => 'Smartgyro Crossover Dual Max 2',
+        '973' => 'Xiaomi Mi4 Lite Gen2 (IT/DE)',
+        '974' => 'Xiaomi Mi4 Pro Gen1 (IT)',
+        '975' => 'Xiaomi Mi4 Pro Gen1 (IT)',
+        '976' => 'Xiaomi Mi4 Pro Plus',
+        '978' => 'Xiaomi Mi 5 Max',
+        '979' => 'Xiaomi Mi 5 Pro',
+        '980' => 'Xiaomi Mi 5',
+        '981' => 'Navee N20',
+        '990' => 'Niu KQi2',
+    ];
+
+    /**
      * Get or create a model term by ewheel model ID.
      *
      * @param string $model_id The ewheel model ID (e.g., "110").
@@ -58,8 +149,9 @@ class ModelService
             return $term->term_id;
         }
 
-        // Create new model term with numeric ID as name
-        $result = wp_insert_term($model_id, self::TAXONOMY, [
+        // Create new model term — use known name if available, otherwise numeric ID
+        $term_name = self::MODEL_NAMES[$model_id] ?? $model_id;
+        $result = wp_insert_term($term_name, self::TAXONOMY, [
             'slug' => sanitize_title($model_id),
         ]);
 
