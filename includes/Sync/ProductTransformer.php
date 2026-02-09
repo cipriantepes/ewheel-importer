@@ -925,7 +925,7 @@ class ProductTransformer
                 continue;
             }
 
-            // Skip models - handled as scooter_model taxonomy
+            // Skip models - handled as product_model taxonomy
             if (AttributeConfiguration::is_model($normalized_key)) {
                 continue;
             }

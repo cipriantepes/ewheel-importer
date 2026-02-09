@@ -31,7 +31,7 @@ class AttributeConfiguration
         'ancho-neumatico-in', // Tire width inches
         'ancho-neumatico-mm', // Tire width mm
         'llanta',             // Rim size
-        // 'modelos-compatibles' is now handled as scooter_model taxonomy
+        // 'modelos-compatibles' is now handled as product_model taxonomy
         'voltaje-nominal',    // Nominal voltage
         'voltaje-nominal-1',  // Nominal voltage (variant)
         'bisel',              // Bevel/chamfer

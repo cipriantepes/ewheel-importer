@@ -1,7 +1,7 @@
 # Ewheel Model ID Reference
 
 Mapping of ewheel numeric model IDs to scooter names.
-These are the `scooter_model` taxonomy terms — the plugin auto-names known models on first sync.
+These are the `product_model` taxonomy terms — the plugin auto-names known models on first sync.
 
 ## Confirmed Mappings (84 models)
 

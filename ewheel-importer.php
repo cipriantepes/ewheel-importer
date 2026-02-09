@@ -244,7 +244,7 @@ final class Ewheel_Importer
         add_action('init', [$this, 'register_product_brand_taxonomy'], 5);
 
         // Scooter Model Taxonomy
-        add_action('init', [$this, 'register_scooter_model_taxonomy'], 5);
+        add_action('init', [$this, 'register_product_model_taxonomy'], 5);
 
         // Product Badges (NEW/Discontinued)
         add_action('woocommerce_before_shop_loop_item_title', [$this, 'render_product_badges'], 10);
@@ -2241,13 +2241,13 @@ final class Ewheel_Importer
     }
 
     /**
-     * Register scooter_model taxonomy for WooCommerce products.
+     * Register product_model taxonomy for WooCommerce products.
      *
      * @return void
      */
-    public function register_scooter_model_taxonomy(): void
+    public function register_product_model_taxonomy(): void
     {
-        if (taxonomy_exists('scooter_model')) {
+        if (taxonomy_exists('product_model')) {
             return;
         }
 
@@ -2265,7 +2265,7 @@ final class Ewheel_Importer
             'menu_name'         => __('Models', 'ewheel-importer'),
         ];
 
-        register_taxonomy('scooter_model', ['product'], [
+        register_taxonomy('product_model', ['product'], [
             'hierarchical'      => false,
             'labels'            => $labels,
             'show_ui'           => true,

@@ -10,7 +10,7 @@ namespace Trotibike\EwheelImporter\Service;
 /**
  * Handles scooter model taxonomy operations.
  *
- * Manages the scooter_model taxonomy for WooCommerce products,
+ * Manages the product_model taxonomy for WooCommerce products,
  * providing methods to create model terms and assign them to products.
  * Model terms are looked up by ewheel model ID stored as term meta.
  */
@@ -19,7 +19,7 @@ class ModelService
     /**
      * Taxonomy name for scooter models.
      */
-    public const TAXONOMY = 'scooter_model';
+    public const TAXONOMY = 'product_model';
 
     /**
      * Known model ID → scooter name mapping.
