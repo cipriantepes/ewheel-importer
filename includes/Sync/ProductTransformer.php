@@ -767,10 +767,18 @@ class ProductTransformer
      */
     private function clean_attribute_value($value)
     {
+        // Handle LocalizedString type: numeric reference IDs are not useful values
+        if (is_numeric($value) && !is_string($value)) {
+            return null;
+        }
+
         if (is_array($value)) {
             // If it's a selection with explicit 'value' key
             if (isset($value['value'])) {
                 $value = $value['value'];
+            } elseif (isset($value['id']) && isset($value['translations']) && empty($value['translations'])) {
+                // LocalizedString with empty translations (e.g., tipo, descripcion-metacampo at product level)
+                return null;
             } elseif (isset($value['translations']) || isset($value['Translations'])) {
                 // Complex multilingual format — extract Spanish source text
                 // Translation happens later in translate_attribute_value()
@@ -812,6 +820,12 @@ class ProductTransformer
         $str_val = (string) $value;
         $str_val = trim($str_val);
 
+        // Filter out garbage/sentinel values from API
+        $garbage_values = ['[]', 'none', 'null', 'false', 'n/a', '0', '{}'];
+        if (in_array(strtolower($str_val), $garbage_values, true)) {
+            return null;
+        }
+
         // Detect JSON
         if (strpos($str_val, '{') === 0 || strpos($str_val, '[') === 0) {
             $json = json_decode($str_val, true);
@@ -838,55 +852,6 @@ class ProductTransformer
         }
 
         return $str_val === '' ? null : $str_val;
-    }
-
-    /**
-     * Transform attributes to WooCommerce format.
-     *
-     * @param array $attributes Array of attributes.
-     * @return array WooCommerce attributes array.
-     */
-    private function transform_attributes(array $attributes): array
-    {
-        $woo_attributes = [];
-
-        foreach ($attributes as $key => $value) {
-            // Support both Key => Value map and list of { alias: '...', value: '...' }
-            $attr_name = $key;
-            $attr_val = $value;
-
-            if (is_array($value)) {
-                $attr_name = $value['alias'] ?? ($value['Alias'] ?? '');
-                $attr_val = $value['value'] ?? ($value['Value'] ?? '');
-            }
-
-            if (empty($attr_name)) {
-                continue;
-            }
-
-            // CLEANUP VALUE
-            $final_val = $this->clean_attribute_value($attr_val);
-
-            if ($final_val === null) {
-                continue;
-            }
-
-            // Translate attribute name
-            $translated_name = $this->translate_attribute_name((string) $attr_name);
-
-            // Skip translation for brand names (marca, brand) - keep original value
-            $is_brand = in_array(strtolower($attr_name), ['marca', 'brand'], true);
-            $translated_val = $is_brand ? $final_val : $this->translate_attribute_value($final_val);
-
-            $woo_attributes[] = [
-                'name' => $translated_name,
-                'options' => [$translated_val],
-                'visible' => true,
-                'variation' => false,
-            ];
-        }
-
-        return $woo_attributes;
     }
 
     /**
@@ -942,6 +907,17 @@ class ProductTransformer
 
             // Clean the attribute value
             $final_val = $this->clean_attribute_value($attr_val);
+
+            // Fix Selection arrays that split decimal values (e.g., o-llanta-in ["6","5"] → "6.5")
+            if ($final_val !== null && strpos($final_val, ' | ') !== false) {
+                $inch_attrs = ['o-llanta-in', 'ancho-neumatico-in', 'o-exterior-in'];
+                if (in_array($normalized_key, $inch_attrs, true)) {
+                    $parts = array_map('trim', explode(' | ', $final_val));
+                    if (count($parts) === 2 && is_numeric($parts[0]) && is_numeric($parts[1])) {
+                        $final_val = $parts[0] . '.' . $parts[1];
+                    }
+                }
+            }
 
             if ($final_val === null) {
                 continue;

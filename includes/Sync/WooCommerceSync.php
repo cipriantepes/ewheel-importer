@@ -769,6 +769,55 @@ class WooCommerceSync
     }
 
     /**
+     * Sync stock levels from the API.
+     *
+     * Fetches all stock data and updates WooCommerce products by SKU match.
+     *
+     * @return array Stats: ['updated' => int, 'skipped' => int].
+     */
+    public function sync_stock(): array
+    {
+        $stock_map = $this->ewheel_client->get_stock();
+
+        if (empty($stock_map)) {
+            \Trotibike\EwheelImporter\Log\LiveLogger::log('No stock data received from API', 'warning');
+            return ['updated' => 0, 'skipped' => 0];
+        }
+
+        $updated = 0;
+        $skipped = 0;
+
+        foreach ($stock_map as $variant_ref => $stock_qty) {
+            $product_id = wc_get_product_id_by_sku($variant_ref);
+
+            if (!$product_id) {
+                $skipped++;
+                continue;
+            }
+
+            $product = wc_get_product($product_id);
+            if (!$product) {
+                $skipped++;
+                continue;
+            }
+
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity($stock_qty);
+            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+            $product->save();
+
+            $updated++;
+        }
+
+        \Trotibike\EwheelImporter\Log\LiveLogger::log(
+            "Stock sync complete: {$updated} updated, {$skipped} skipped",
+            'success'
+        );
+
+        return ['updated' => $updated, 'skipped' => $skipped];
+    }
+
+    /**
      * Set product data on a WooCommerce product object.
      *
      * @param \WC_Product $product The product object.
@@ -808,13 +857,25 @@ class WooCommerceSync
             $product->set_status($data['status']);
         }
 
+        // Enable stock management by default (can be overridden by data)
         if (isset($data['manage_stock'])) {
             $product->set_manage_stock($data['manage_stock']);
+        } elseif (!$is_update) {
+            // Set to true for new products (sync_stock will manage quantities)
+            $product->set_manage_stock(true);
         }
 
-        // Set stock status (required when manage_stock is false)
+        // Set stock quantity if provided
+        if (isset($data['stock_quantity'])) {
+            $product->set_stock_quantity($data['stock_quantity']);
+        }
+
+        // Set stock status
         if (isset($data['stock_status'])) {
             $product->set_stock_status($data['stock_status']);
+        } elseif (!$is_update && !isset($data['stock_quantity'])) {
+            // For new products without stock data, default to in stock
+            $product->set_stock_status('instock');
         }
 
         // Set native WooCommerce dimensions (weight, height, width, length)

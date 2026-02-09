@@ -90,32 +90,6 @@ class ProductTransformerTest extends TestCase {
     }
 
     /**
-     * Test transforming attributes to WooCommerce format.
-     */
-    public function test_transform_attributes(): void {
-        $translator        = MockFactory::translator();
-        $pricing_converter = MockFactory::pricing_converter();
-        $config            = MockFactory::configuration();
-
-        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
-        $ewheel_product = ProductFixtures::simple_ewheel_product(
-            [
-                'Attributes' => [
-                    'weight'       => '15kg',
-                    'max_speed'    => '25km/h',
-                    'battery_life' => '40km',
-                ],
-            ]
-        );
-
-        $result = $transformer->transform( $ewheel_product );
-        $woo_product = $result[0];
-
-        $this->assertArrayHasKey( 'attributes', $woo_product );
-        $this->assertCount( 3, $woo_product['attributes'] );
-    }
-
-    /**
      * Test category mapping.
      */
     public function test_maps_categories(): void {

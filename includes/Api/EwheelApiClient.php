@@ -29,6 +29,11 @@ class EwheelApiClient
     private const PRODUCTS_ENDPOINT = '/api/v1/catalog/products/filter';
 
     /**
+     * Stock endpoint.
+     */
+    private const STOCK_ENDPOINT = '/api/v1/catalog/stock/filter';
+
+    /**
      * Default page size for API requests.
      */
     private const DEFAULT_PAGE_SIZE = 50;
@@ -290,6 +295,50 @@ class EwheelApiClient
         );
 
         return $all_products;
+    }
+
+    /**
+     * Get stock levels from the API.
+     *
+     * Returns all stock entries. The stock endpoint returns all data in one call.
+     *
+     * @return array Stock data indexed by variant reference.
+     */
+    public function get_stock(): array
+    {
+        $url = self::BASE_URL . self::STOCK_ENDPOINT;
+
+        try {
+            $response = $this->http_client->post(
+                $url,
+                [],
+                $this->get_headers()
+            );
+
+            $data = $this->extract_data($response);
+
+            // Index by variant reference for easy lookup
+            $indexed = [];
+            foreach ($data as $entry) {
+                $ref = $entry['variantReference'] ?? '';
+                if (!empty($ref)) {
+                    $indexed[$ref] = (int) ($entry['stock'] ?? 0);
+                }
+            }
+
+            \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                "Fetched stock for " . count($indexed) . " variants",
+                'success'
+            );
+
+            return $indexed;
+        } catch (\Exception $e) {
+            \Trotibike\EwheelImporter\Log\LiveLogger::log(
+                "Failed to fetch stock: " . $e->getMessage(),
+                'error'
+            );
+            return [];
+        }
     }
 
     /**
