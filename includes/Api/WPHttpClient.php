@@ -46,7 +46,7 @@ class WPHttpClient implements HttpClientInterface {
                 ],
                 $headers
             ),
-            'body'    => wp_json_encode( $body ),
+            'body'    => empty( $body ) ? '{}' : wp_json_encode( $body ),
         ];
 
         $response = wp_remote_post( $url, $args );
