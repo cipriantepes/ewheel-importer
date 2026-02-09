@@ -128,7 +128,7 @@ class EwheelApiClient
                 );
                 break;
             }
-        } while (count($categories) >= $page_size);
+        } while (true); // Stop only when empty page received (API may return < page_size)
 
         return $all_categories;
     }
@@ -252,7 +252,7 @@ class EwheelApiClient
             $count = count($products);
             $total += $count;
             $page++;
-        } while ($count >= $page_size && $page < $max_pages);
+        } while ($count > 0 && $page < $max_pages);
 
         return $total;
     }
@@ -287,7 +287,7 @@ class EwheelApiClient
                 );
                 break;
             }
-        } while (count($products) >= $page_size);
+        } while (true); // Stop only when empty page received (API may return < page_size)
 
         \Trotibike\EwheelImporter\Log\LiveLogger::log(
             "Fetched " . count($all_products) . " total products in {$page} pages",
