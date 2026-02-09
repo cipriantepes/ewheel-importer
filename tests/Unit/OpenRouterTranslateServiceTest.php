@@ -115,12 +115,11 @@ class OpenRouterTranslateServiceTest extends TestCase {
         $this->expectExceptionMessage( 'OpenRouter Error:' );
 
         Functions\expect( 'get_site_url' )
-            ->once()
             ->andReturn( 'https://example.com' );
 
         $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
-            ->once()
+            ->times( 2 ) // Retries once with backoff before throwing
             ->andThrow( new \RuntimeException( 'API Error' ) );
 
         $service = new OpenRouterTranslateService( 'test-api-key', 'google/gemini-flash-1.5', $http_client );
@@ -180,12 +179,11 @@ class OpenRouterTranslateServiceTest extends TestCase {
         $this->expectExceptionMessage( 'Invalid response structure from OpenRouter' );
 
         Functions\expect( 'get_site_url' )
-            ->once()
             ->andReturn( 'https://example.com' );
 
         $http_client = MockFactory::http_client();
         $http_client->shouldReceive( 'post' )
-            ->once()
+            ->times( 2 ) // Retries once with backoff before throwing
             ->andReturn( [ 'invalid' => 'response' ] );
 
         $service = new OpenRouterTranslateService( 'test-api-key', 'google/gemini-flash-1.5', $http_client );

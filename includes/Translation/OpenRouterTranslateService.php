@@ -144,18 +144,27 @@ class OpenRouterTranslateService implements TranslationServiceInterface
             'X-Title' => 'Ewheel Importer', // OpenRouter requirement
         ];
 
-        try {
-            $response = $this->http_client->post(self::API_URL, $body, $headers);
+        $max_attempts = 2;
+        $last_exception = null;
 
-            if (isset($response['choices'][0]['message']['content'])) {
-                return trim($response['choices'][0]['message']['content']);
+        for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+            try {
+                $response = $this->http_client->post(self::API_URL, $body, $headers);
+
+                if (isset($response['choices'][0]['message']['content'])) {
+                    return trim($response['choices'][0]['message']['content']);
+                }
+
+                throw new \RuntimeException('Invalid response structure from OpenRouter');
+            } catch (\Exception $e) {
+                $last_exception = $e;
+                if ($attempt < $max_attempts) {
+                    sleep(pow(2, $attempt)); // Exponential backoff: 2s, 4s
+                }
             }
-
-            throw new \RuntimeException('Invalid response structure from OpenRouter');
-        } catch (\Exception $e) {
-            // Log error but allow flow to continue (throw up)
-            throw new \RuntimeException('OpenRouter Error: ' . $e->getMessage());
         }
+
+        throw new \RuntimeException('OpenRouter Error: ' . $last_exception->getMessage());
     }
 
     /**
@@ -217,7 +226,7 @@ class OpenRouterTranslateService implements TranslationServiceInterface
             'X-Title' => 'Ewheel Importer',
         ];
 
-        $max_attempts = 2;
+        $max_attempts = 3;
         $last_exception = null;
 
         for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
@@ -249,8 +258,9 @@ class OpenRouterTranslateService implements TranslationServiceInterface
                 error_log("[Ewheel Translation] Batch attempt {$attempt} failed: " . $e->getMessage());
 
                 if ($attempt < $max_attempts) {
-                    error_log("[Ewheel Translation] Retrying in 2 seconds...");
-                    sleep(2);
+                    $delay = pow(2, $attempt); // Exponential backoff: 2s, 4s
+                    error_log("[Ewheel Translation] Retrying in {$delay} seconds...");
+                    sleep($delay);
                 }
             }
         }

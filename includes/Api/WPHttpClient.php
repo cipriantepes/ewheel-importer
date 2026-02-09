@@ -130,6 +130,11 @@ class WPHttpClient implements HttpClientInterface {
                 $decoded = json_decode( $body, true );
                 if ( isset( $decoded['error']['message'] ) ) {
                     $error_detail = ': ' . $decoded['error']['message'];
+                    // Include provider metadata for debugging upstream failures
+                    if ( isset( $decoded['error']['metadata'] ) ) {
+                        $meta = wp_json_encode( $decoded['error']['metadata'] );
+                        $error_detail .= " [metadata: {$meta}]";
+                    }
                 } elseif ( isset( $decoded['error'] ) && is_string( $decoded['error'] ) ) {
                     $error_detail = ': ' . $decoded['error'];
                 } elseif ( isset( $decoded['message'] ) ) {

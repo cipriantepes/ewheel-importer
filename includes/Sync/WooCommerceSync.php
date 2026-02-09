@@ -472,6 +472,12 @@ class WooCommerceSync
         $skip_prefetch = defined('EWHEEL_SKIP_TRANSLATION') && EWHEEL_SKIP_TRANSLATION;
 
         if (!$skip_prefetch) {
+            // Quick health check — verify translation service is responsive before batch
+            if (!$this->check_translation_health()) {
+                PersistentLogger::error("[Translation] Service health check failed — aborting batch for retry");
+                throw new \RuntimeException('Translation service unavailable');
+            }
+
             try {
                 PersistentLogger::info("[Performance] Prefetching translations for batch of " . count($ewheel_products) . " items...");
 
@@ -484,7 +490,18 @@ class WooCommerceSync
                 delete_transient('ewheel_translation_in_progress');
             } catch (\Throwable $e) {
                 delete_transient('ewheel_translation_in_progress');
-                PersistentLogger::warning("[Translation] Prefetch failed — products in this batch may appear untranslated: " . $e->getMessage());
+
+                // Check if this is a provider failure (HTTP 4xx/5xx)
+                $msg = $e->getMessage();
+                if (strpos($msg, 'HTTP request failed with status 4') !== false
+                    || strpos($msg, 'HTTP request failed with status 5') !== false) {
+                    // Provider is down — rethrow to trigger batch retry with backoff
+                    PersistentLogger::error("[Translation] Provider unavailable — batch will be retried: " . $msg);
+                    throw $e;
+                }
+
+                // For other errors (parsing, etc.), warn and continue
+                PersistentLogger::warning("[Translation] Prefetch partial failure: " . $msg);
             }
         }
         // --- OPTIMIZATION END ---
@@ -569,6 +586,21 @@ class WooCommerceSync
         }
 
         return $results;
+    }
+
+    /**
+     * Check if the translation service is responsive.
+     *
+     * @return bool True if healthy.
+     */
+    private function check_translation_health(): bool
+    {
+        try {
+            $result = $this->translator->translate('test', 'en');
+            return !empty($result);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
