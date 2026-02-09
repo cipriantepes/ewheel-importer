@@ -444,10 +444,20 @@ class SyncBatchProcessor
             return;
         }
 
+        $active_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
+        $sync_type = $status['type'] ?? 'full';
+        $is_full_sync = $sync_type === 'full' && empty($status['limit']);
+
         PersistentLogger::info('Starting stock synchronization...', null, $sync_id, $profile_id);
 
         try {
-            $stock_result = $this->woo_sync->sync_stock();
+            // For partial syncs, only update stock for the synced products
+            // For full syncs without a limit, fetch all stock from API
+            if ($is_full_sync) {
+                $stock_result = $this->woo_sync->sync_stock();
+            } else {
+                $stock_result = $this->woo_sync->sync_stock($active_refs);
+            }
 
             PersistentLogger::success(
                 sprintf('Stock sync complete: %d updated, %d skipped',
@@ -462,27 +472,23 @@ class SyncBatchProcessor
         }
 
         // Run lifecycle reconciliation for full syncs only
-        $sync_type = $status['type'] ?? 'full';
-        if ($sync_type === 'full') {
-            $active_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
-            if (!empty($active_refs)) {
-                try {
-                    $reconcile_result = $this->woo_sync->reconcile_products($active_refs);
-                    PersistentLogger::info(
-                        sprintf('Lifecycle reconciliation: %d unpublished, %d checked',
-                            $reconcile_result['unpublished'], $reconcile_result['checked']),
-                        null, $sync_id, $profile_id
-                    );
-                } catch (\Throwable $e) {
-                    PersistentLogger::error(
-                        'Lifecycle reconciliation failed: ' . $e->getMessage(),
-                        null, $sync_id, $profile_id
-                    );
-                }
+        if ($is_full_sync && !empty($active_refs)) {
+            try {
+                $reconcile_result = $this->woo_sync->reconcile_products($active_refs);
+                PersistentLogger::info(
+                    sprintf('Lifecycle reconciliation: %d unpublished, %d checked',
+                        $reconcile_result['unpublished'], $reconcile_result['checked']),
+                    null, $sync_id, $profile_id
+                );
+            } catch (\Throwable $e) {
+                PersistentLogger::error(
+                    'Lifecycle reconciliation failed: ' . $e->getMessage(),
+                    null, $sync_id, $profile_id
+                );
             }
-            // Clean up temporary option
-            delete_option('ewheel_sync_active_refs_' . $sync_id);
         }
+        // Clean up temporary option
+        delete_option('ewheel_sync_active_refs_' . $sync_id);
 
         // Now mark as fully completed
         $this->complete_sync($sync_id, $profile_id);

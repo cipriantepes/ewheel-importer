@@ -855,13 +855,21 @@ class WooCommerceSync
      *
      * @return array Stats: ['updated' => int, 'skipped' => int].
      */
-    public function sync_stock(): array
+    public function sync_stock(array $only_refs = []): array
     {
+        // If specific references provided, fetch all stock but only update those
+        // If empty, fetch and update all (full sync)
         $stock_map = $this->ewheel_client->get_stock();
 
         if (empty($stock_map)) {
             \Trotibike\EwheelImporter\Log\LiveLogger::log('No stock data received from API', 'warning');
             return ['updated' => 0, 'skipped' => 0];
+        }
+
+        // Filter to only requested references for partial syncs
+        if (!empty($only_refs)) {
+            $ref_set = array_flip($only_refs);
+            $stock_map = array_intersect_key($stock_map, $ref_set);
         }
 
         $updated = 0;
