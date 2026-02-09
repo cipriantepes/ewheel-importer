@@ -144,7 +144,7 @@ class ProductTransformer
             $sync_fields = $this->config->get_sync_fields();
 
             $woo_product = [
-                'sku' => $p['reference'] ?? ($ewheel_product['Reference'] ?? ''),
+                'sku' => $this->clean_sku($p['reference'] ?? ($ewheel_product['Reference'] ?? '')),
                 'status' => ($p['active'] ?? ($ewheel_product['Active'] ?? false)) ? 'publish' : 'draft',
                 'type' => $product_type,
                 'manage_stock' => false,
@@ -234,6 +234,25 @@ class ProductTransformer
                 }
 
                 $api_attributes = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
+            }
+
+            // Extract EAN/UPC from API attributes (codigo-alternativo, codigo-alternativo-2)
+            // These supplement the pipe-separated description extraction
+            if (is_array($attrs_val)) {
+                $barcode_data = $this->extract_barcode_from_attributes($attrs_val);
+                if (!empty($barcode_data['ean']) && empty($woo_product['_gtin'])) {
+                    $woo_product['_gtin'] = $barcode_data['ean'];
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_ean',
+                        'value' => $barcode_data['ean'],
+                    ];
+                }
+                if (!empty($barcode_data['upc']) && !$this->has_meta_key($woo_product, '_ewheel_upc')) {
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_upc',
+                        'value' => $barcode_data['upc'],
+                    ];
+                }
             }
 
             // Merge pipe-extracted attributes (from description field) with API attributes
@@ -454,6 +473,24 @@ class ProductTransformer
                 }
 
                 $parent_attrs = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
+            }
+
+            // Extract EAN/UPC from API attributes (supplement pipe data)
+            if (is_array($attrs_val)) {
+                $barcode_data = $this->extract_barcode_from_attributes($attrs_val);
+                if (!empty($barcode_data['ean']) && empty($woo_product['_gtin'])) {
+                    $woo_product['_gtin'] = $barcode_data['ean'];
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_ean',
+                        'value' => $barcode_data['ean'],
+                    ];
+                }
+                if (!empty($barcode_data['upc']) && !$this->has_meta_key($woo_product, '_ewheel_upc')) {
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_upc',
+                        'value' => $barcode_data['upc'],
+                    ];
+                }
             }
 
             // Combine: parent attrs + variant attrs + pipe-extracted attrs (deduplicated)
@@ -1349,6 +1386,86 @@ class ProductTransformer
         }
 
         return $html;
+    }
+
+    /**
+     * Clean a SKU by stripping the '-parent' suffix.
+     *
+     * The ewheel API uses '-parent' suffix on container product references
+     * (e.g., "MP-010-parent") while variant references are clean ("MP-010").
+     * WooCommerce SKUs should use the clean reference.
+     *
+     * @param string $reference The raw reference string.
+     * @return string The cleaned SKU.
+     */
+    private function clean_sku(string $reference): string
+    {
+        if (preg_match('/^(.+)-parent$/i', $reference, $matches)) {
+            return $matches[1];
+        }
+
+        return $reference;
+    }
+
+    /**
+     * Extract EAN and UPC barcodes from API attributes.
+     *
+     * Scans for 'codigo-alternativo' (EAN) and 'codigo-alternativo-2' (UPC).
+     *
+     * @param array $attributes Raw API attributes array.
+     * @return array ['ean' => string|null, 'upc' => string|null]
+     */
+    private function extract_barcode_from_attributes(array $attributes): array
+    {
+        $result = ['ean' => null, 'upc' => null];
+
+        foreach ($attributes as $key => $value) {
+            $attr_name = $key;
+            $attr_val = $value;
+
+            if (is_array($value)) {
+                $attr_name = $value['alias'] ?? ($value['Alias'] ?? '');
+                $attr_val = $value['value'] ?? ($value['Value'] ?? '');
+            }
+
+            $normalized = AttributeConfiguration::normalize_key($attr_name);
+
+            if ($normalized === 'codigo-alternativo') {
+                $val = $this->clean_attribute_value($attr_val);
+                if ($val !== null && preg_match('/^\d{8,14}$/', $val)) {
+                    $result['ean'] = $val;
+                }
+            } elseif ($normalized === 'codigo-alternativo-2') {
+                $val = $this->clean_attribute_value($attr_val);
+                if ($val !== null && preg_match('/^\d{8,14}$/', $val)) {
+                    $result['upc'] = $val;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Check if a product data array already has a specific meta key.
+     *
+     * @param array  $product_data The product data.
+     * @param string $meta_key     The meta key to check.
+     * @return bool True if the meta key exists with a non-empty value.
+     */
+    private function has_meta_key(array $product_data, string $meta_key): bool
+    {
+        if (empty($product_data['meta_data'])) {
+            return false;
+        }
+
+        foreach ($product_data['meta_data'] as $meta) {
+            if ($meta['key'] === $meta_key && !empty($meta['value'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

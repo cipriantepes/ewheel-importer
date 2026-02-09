@@ -73,8 +73,8 @@ class AttributeConfiguration
         'descripcion-metacampo'  => '_ewheel_meta_description',
         'codigo-familia'         => '_ewheel_family_code',
         'ficha-tecnica'          => '_ewheel_product_sheet',
-        'codigo-alternativo'     => '_ewheel_alt_code',
-        'codigo-alternativo-2'   => '_ewheel_alt_code_2',
+        'codigo-alternativo'     => '_ewheel_ean',
+        'codigo-alternativo-2'   => '_ewheel_upc',
         'sku-anterior'           => '_ewheel_previous_sku',
     ];
 
