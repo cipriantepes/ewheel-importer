@@ -269,8 +269,8 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                 <input type="hidden" id="ewheel_importer_openrouter_model_hidden"
                                     name="ewheel_importer_openrouter_model"
                                     value="<?php echo esc_attr($settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free'); ?>" />
-                                <div style="display: flex; gap: 10px; align-items: flex-start;">
-                                    <select id="ewheel_importer_openrouter_model" style="min-width: 350px;">
+                                <div style="display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap;">
+                                    <select id="ewheel_importer_openrouter_model" style="width: 100%; max-width: 450px;">
                                         <?php
                                         $current_model = $settings['openrouter_model'] ?? 'google/gemini-2.0-flash:free';
                                         ?>
@@ -287,7 +287,7 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                 <div id="ewheel-custom-model-wrapper" style="display: none; margin-top: 8px;">
                                     <input type="text" id="ewheel_importer_openrouter_model_custom"
                                         placeholder="<?php esc_attr_e('e.g. google/gemini-2.5-flash', 'ewheel-importer'); ?>"
-                                        style="min-width: 350px;" />
+                                        style="width: 100%; max-width: 450px;" />
                                     <p class="description">
                                         <?php esc_html_e('Enter the model ID from openrouter.ai/models (e.g. google/gemini-2.5-flash)', 'ewheel-importer'); ?>
                                     </p>

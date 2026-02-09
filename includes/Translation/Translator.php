@@ -99,10 +99,12 @@ class Translator
 
         // Check persistent cache
         $cached = $this->repository->get($text, $source_lang, $this->target_language);
-        if ($cached !== null) {
+        if ($cached !== null && $cached !== $text) {
+            // Cache hit with a real translation (not the original text)
             return $cached;
         }
 
+        // Cache miss OR stale entry (cached value === source text from a previous failure)
         try {
             $translated = $this->translation_service->translate(
                 $text,
@@ -112,22 +114,24 @@ class Translator
 
             // Fallback: return original if translation failed or returned empty
             if (empty($translated)) {
-                return $text;
+                return $cached ?? $text;
             }
 
-            // Save to persistent cache
-            $this->repository->save(
-                $text,
-                $translated,
-                $source_lang,
-                $this->target_language,
-                $this->get_service_name()
-            );
+            // Only cache if the translation is different from the source
+            if ($translated !== $text) {
+                $this->repository->save(
+                    $text,
+                    $translated,
+                    $source_lang,
+                    $this->target_language,
+                    $this->get_service_name()
+                );
+            }
 
             return $translated;
         } catch (\Throwable $e) {
             PersistentLogger::error("[Translation] Failed: " . $e->getMessage());
-            return $text; // Graceful degradation
+            return $cached ?? $text; // Use stale cache if available, else original
         }
     }
 
@@ -230,7 +234,8 @@ class Translator
         foreach ($texts as $key => $text) {
             $hash = $this->repository->generate_hash($text, $source_lang, $this->target_language);
 
-            if (isset($cached_map[$hash])) {
+            if (isset($cached_map[$hash]) && $cached_map[$hash] !== $text) {
+                // Cache hit with a real translation (not stale source text)
                 $final_results[$key] = $cached_map[$hash];
             } else {
                 $text = trim($text);
@@ -257,14 +262,16 @@ class Translator
 
                     $final_results[$key] = $translated_text;
 
-                    // Save to persistent cache
-                    $this->repository->save(
-                        $source_text,
-                        $translated_text,
-                        $source_lang,
-                        $this->target_language,
-                        $this->get_service_name()
-                    );
+                    // Only cache if the translation differs from source
+                    if ($translated_text !== $source_text) {
+                        $this->repository->save(
+                            $source_text,
+                            $translated_text,
+                            $source_lang,
+                            $this->target_language,
+                            $this->get_service_name()
+                        );
+                    }
                 }
             } catch (\Exception $e) {
                 error_log('Batch translation error: ' . $e->getMessage());

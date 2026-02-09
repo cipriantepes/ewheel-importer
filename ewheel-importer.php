@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.0.4
+ * Version:           2.0.5
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.0.4');
+define('EWHEEL_IMPORTER_VERSION', '2.0.5');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -187,6 +187,7 @@ final class Ewheel_Importer
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_init', [$this, 'check_db_tables']); // Self-healing DB
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+        add_action('admin_head', [$this, 'product_list_column_styles']);
 
         // AJAX
         add_action('wp_ajax_ewheel_run_sync', [$this, 'ajax_run_sync']);
@@ -2272,6 +2273,31 @@ final class Ewheel_Importer
             'query_var'         => true,
             'rewrite'           => ['slug' => 'model', 'with_front' => false],
         ]);
+    }
+
+    /**
+     * Output column styles for product_model taxonomy on WooCommerce product list.
+     *
+     * @return void
+     */
+    public function product_list_column_styles(): void
+    {
+        $screen = get_current_screen();
+        if (!$screen || $screen->post_type !== 'product') {
+            return;
+        }
+        echo '<style>
+            .column-taxonomy-product_model,
+            .column-product_model,
+            th#taxonomy-product_model,
+            td.taxonomy-product_model {
+                width: 150px !important;
+                min-width: 150px !important;
+                max-width: 200px !important;
+                word-break: break-word !important;
+                white-space: normal !important;
+            }
+        </style>';
     }
 
     /**
