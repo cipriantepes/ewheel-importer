@@ -103,6 +103,10 @@
             var $resumeBtn = $('#ewheel-resume-sync');
             var $cancelBtn = $('#ewheel-cancel-sync');
             var $status = $('#ewheel-sync-status');
+            var $progress = $('#ewheel-sync-progress');
+            var $progressBar = $progress.find('.ewheel-progress-bar');
+            var $progressText = $('#ewheel-progress-text');
+            var $details = $('#ewheel-sync-details');
 
             // Reset all buttons first
             $runBtn.hide().prop('disabled', false);
@@ -113,23 +117,38 @@
             switch (state) {
                 case 'idle':
                     $runBtn.show();
+                    $progress.hide();
                     $status.removeClass('syncing success error').text('');
                     break;
 
                 case 'running':
                     $pauseBtn.show();
                     $cancelBtn.show();
+                    $progress.show();
                     var msg = 'Processing...';
                     if (data) {
-                        msg = 'Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0);
+                        var processed = data.processed || 0;
+                        var total = data.total_products || 0;
+                        msg = 'Page: ' + (data.page || 0) + ' | Products: ' + processed;
                         if (data.created) msg += ' | Created: ' + data.created;
                         if (data.updated) msg += ' | Updated: ' + data.updated;
-                        // Show adaptive batch info when reduced from default
                         if (data.batch_size && data.batch_size < 10) {
                             msg += ' | Batch: ' + data.batch_size;
                         }
                         if (data.failure_count && data.failure_count > 0) {
                             msg += ' | Retries: ' + data.failure_count;
+                        }
+                        $details.text(msg);
+
+                        // Update progress bar
+                        if (total > 0 && processed > 0) {
+                            var pct = Math.min(Math.round((processed / total) * 100), 100);
+                            $progressBar.css('width', pct + '%');
+                            $progressText.text(pct + '%');
+                        } else if (processed > 0) {
+                            // No total known — show indeterminate with count
+                            $progressBar.css('width', '100%');
+                            $progressText.text(processed + ' processed');
                         }
                     }
                     $status.removeClass('success error').addClass('syncing').text(msg);
@@ -138,40 +157,52 @@
                 case 'pausing':
                     $pauseBtn.show().prop('disabled', true).text('Pausing...');
                     $cancelBtn.show();
+                    $details.text('Finishing current batch before pausing...');
                     $status.text('Finishing current batch before pausing...');
                     break;
 
                 case 'paused':
                     $resumeBtn.show();
                     $cancelBtn.show();
+                    $progress.show();
                     var pauseMsg = 'Paused';
                     if (data) {
                         pauseMsg = 'Paused at page ' + (data.page || 0) + ' (' + (data.processed || 0) + ' products processed)';
                     }
+                    $details.text(pauseMsg);
                     $status.removeClass('syncing').text(pauseMsg);
                     break;
 
                 case 'stopping':
                     $cancelBtn.show().prop('disabled', true).text('Cancelling...');
+                    $details.text('Finishing current batch before cancelling...');
                     $status.text('Finishing current batch before cancelling...');
                     break;
 
                 case 'completed':
                     $runBtn.show();
+                    $progress.show();
+                    $progressBar.css('width', '100%');
+                    $progressText.text('100%');
                     var completeMsg = 'Sync completed!';
                     if (data) {
                         completeMsg += ' Processed: ' + (data.processed || 0);
                     }
+                    $details.text(completeMsg);
                     $status.removeClass('syncing error').addClass('success').text(completeMsg);
+                    // Hide progress after a moment
+                    setTimeout(function () { $progress.fadeOut(); }, 3000);
                     break;
 
                 case 'stopped':
                     $runBtn.show();
+                    $progress.hide();
                     $status.removeClass('syncing success').text('Sync cancelled.');
                     break;
 
                 case 'failed':
                     $runBtn.show();
+                    $progress.hide();
                     $status.removeClass('syncing success').addClass('error').text('Sync failed.');
                     break;
             }
@@ -674,6 +705,8 @@
             var $resumeBtn = $('#ewheel-resume-profile-sync');
             var $cancelBtn = $('#ewheel-cancel-profile-sync');
             var $progress = $('#ewheel-profile-sync-progress');
+            var $progressBar = $progress.find('.ewheel-progress-bar');
+            var $progressText = $progress.find('#ewheel-profile-progress-text');
             var $details = $('#ewheel-profile-sync-details');
 
             // Reset all buttons
@@ -693,8 +726,9 @@
                     $cancelBtn.show();
                     $progress.show();
                     if (data) {
-                        var detailsMsg = 'Page: ' + (data.page || 0) + ' | Products: ' + (data.processed || 0);
-                        // Show adaptive batch info when reduced from default
+                        var processed = data.processed || 0;
+                        var total = data.total_products || 0;
+                        var detailsMsg = 'Page: ' + (data.page || 0) + ' | Products: ' + processed;
                         if (data.batch_size && data.batch_size < 10) {
                             detailsMsg += ' | Batch: ' + data.batch_size;
                         }
@@ -702,6 +736,16 @@
                             detailsMsg += ' | Retries: ' + data.failure_count;
                         }
                         $details.text(detailsMsg);
+
+                        // Update progress bar
+                        if (total > 0 && processed > 0) {
+                            var pct = Math.min(Math.round((processed / total) * 100), 100);
+                            $progressBar.css('width', pct + '%');
+                            $progressText.text(pct + '%');
+                        } else if (processed > 0) {
+                            $progressBar.css('width', '100%');
+                            $progressText.text(processed + ' processed');
+                        }
                     }
                     break;
 
@@ -726,6 +770,13 @@
                     break;
 
                 case 'completed':
+                    $runBtn.show();
+                    $progress.show();
+                    $progressBar.css('width', '100%');
+                    $progressText.text('100%');
+                    setTimeout(function () { $progress.fadeOut(); }, 3000);
+                    break;
+
                 case 'stopped':
                 case 'failed':
                     $runBtn.show();

@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.2.0
+ * Version:           2.2.1
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.2.0');
+define('EWHEEL_IMPORTER_VERSION', '2.2.1');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -839,6 +839,15 @@ final class Ewheel_Importer
         $is_running = $launcher->is_sync_running($profile_id);
         $is_paused = $launcher->is_sync_paused($profile_id);
 
+        // Get total product count for progress calculation
+        $limit = $status['limit'] ?? 0;
+        if ($limit > 0) {
+            $total_products = $limit;
+        } else {
+            $cached_count = get_transient('ewheel_product_count_cache');
+            $total_products = $cached_count ? (int) $cached_count : 0;
+        }
+
         // Build status response
         $status_data = [
             'status' => $is_running ? 'running' : ($is_paused ? 'paused' : ($status['status'] ?? 'idle')),
@@ -851,6 +860,7 @@ final class Ewheel_Importer
             'failed' => $status['failed'] ?? 0,
             'page' => $status['page'] ?? 0,
             'limit' => $status['limit'] ?? 0,
+            'total_products' => $total_products,
             'type' => $status['type'] ?? 'full',
             'started_at' => $status['started_at'] ?? null,
             'last_update' => $status['last_update'] ?? null,
@@ -942,6 +952,15 @@ final class Ewheel_Importer
         $is_running = $launcher->is_sync_running($profile_id);
         $is_paused = $launcher->is_sync_paused($profile_id);
 
+        // Get total product count for progress calculation
+        $limit = $status['limit'] ?? 0;
+        if ($limit > 0) {
+            $total_products = $limit;
+        } else {
+            $cached_count = get_transient('ewheel_product_count_cache');
+            $total_products = $cached_count ? (int) $cached_count : 0;
+        }
+
         // Build response with full details
         $response = [
             'status' => $is_running ? 'running' : ($is_paused ? 'paused' : ($status['status'] ?? 'idle')),
@@ -954,6 +973,7 @@ final class Ewheel_Importer
             'failed' => $status['failed'] ?? 0,
             'page' => $status['page'] ?? 0,
             'limit' => $status['limit'] ?? 0,
+            'total_products' => $total_products,
             'type' => $status['type'] ?? 'full',
             'started_at' => $status['started_at'] ?? null,
             'last_update' => $status['last_update'] ?? null,
@@ -1517,8 +1537,8 @@ final class Ewheel_Importer
         // Get manual mappings from option
         $manual_mappings = get_option('ewheel_importer_category_mappings', []);
 
-        // Merge (manual takes precedence)
-        $all_mappings = array_merge($auto_mappings, $manual_mappings);
+        // Merge (manual takes precedence; use + to preserve numeric string keys)
+        $all_mappings = $manual_mappings + $auto_mappings;
 
         // Get translation caches
         $transient_translations = get_transient('ewheel_category_translations') ?: [];

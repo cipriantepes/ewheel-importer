@@ -432,24 +432,15 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                 <div class="ewheel-importer-box">
                     <h3><?php esc_html_e('Manual Sync', 'ewheel-importer'); ?></h3>
 
-                    <?php if ($is_running): ?>
-                        <!-- Progress Display -->
-                        <div id="ewheel-sync-progress">
-                            <div class="ewheel-progress-container">
-                                <div class="ewheel-progress-bar" style="width: 0%;">
-                                    <span id="ewheel-progress-text">0%</span>
-                                </div>
+                    <!-- Progress Display (shown/hidden by JS) -->
+                    <div id="ewheel-sync-progress" style="<?php echo esc_attr($is_running ? '' : 'display:none;'); ?>">
+                        <div class="ewheel-progress-container">
+                            <div class="ewheel-progress-bar" style="width: 0%;">
+                                <span id="ewheel-progress-text">0%</span>
                             </div>
-                            <p id="ewheel-sync-details">
-                                <?php
-                                printf(
-                                    esc_html__('Processing: %d products', 'ewheel-importer'),
-                                    $current_status['processed'] ?? 0
-                                );
-                                ?>
-                            </p>
                         </div>
-                    <?php endif; ?>
+                        <p id="ewheel-sync-details"></p>
+                    </div>
 
                     <p>
                         <label for="ewheel-sync-limit" style="margin-right: 10px;">
