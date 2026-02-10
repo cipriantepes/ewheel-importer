@@ -90,7 +90,7 @@ class ProductTransformer
             PersistentLogger::info("ProductTransformer::transform - reference: {$ref}");
 
             $has_variants = !empty($p['variants']);
-            $use_variable_mode = $this->config->is_variable_product_mode();
+            $use_variable_mode = $this->config->is_variable_product_mode($has_variants);
 
             $mode = $has_variants ? ($use_variable_mode ? 'variable' : 'simple-expanded') : 'simple';
             PersistentLogger::info("Transform mode: {$mode}");

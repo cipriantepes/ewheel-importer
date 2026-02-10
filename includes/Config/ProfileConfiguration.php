@@ -176,27 +176,32 @@ class ProfileConfiguration
     /**
      * Get variation mode (profile or global fallback).
      *
-     * @return string
+     * @return string 'auto', 'variable', or 'simple'
      */
     public function get_variation_mode(): string
     {
         $profile_mode = $this->profile->get_setting('variation_mode');
         if ($profile_mode !== null) {
-            return in_array($profile_mode, [Configuration::VARIATION_MODE_VARIABLE, Configuration::VARIATION_MODE_SIMPLE], true)
+            return in_array($profile_mode, [Configuration::VARIATION_MODE_AUTO, Configuration::VARIATION_MODE_VARIABLE, Configuration::VARIATION_MODE_SIMPLE], true)
                 ? $profile_mode
-                : Configuration::VARIATION_MODE_VARIABLE;
+                : Configuration::VARIATION_MODE_AUTO;
         }
         return $this->global_config->get_variation_mode();
     }
 
     /**
-     * Check if using variable product mode.
+     * Check if a product should use variable product mode.
      *
+     * @param bool $has_variants Whether the product has variants.
      * @return bool
      */
-    public function is_variable_product_mode(): bool
+    public function is_variable_product_mode(bool $has_variants = false): bool
     {
-        return $this->get_variation_mode() === Configuration::VARIATION_MODE_VARIABLE;
+        $mode = $this->get_variation_mode();
+        if ($mode === Configuration::VARIATION_MODE_AUTO) {
+            return $has_variants;
+        }
+        return $mode === Configuration::VARIATION_MODE_VARIABLE;
     }
 
     /**

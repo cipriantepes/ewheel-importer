@@ -374,6 +374,9 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                             </th>
                             <td>
                                 <select id="ewheel_importer_variation_mode" name="ewheel_importer_variation_mode">
+                                    <option value="auto" <?php selected($settings['variation_mode'], 'auto'); ?>>
+                                        <?php esc_html_e('Auto-detect', 'ewheel-importer'); ?>
+                                    </option>
                                     <option value="simple" <?php selected($settings['variation_mode'], 'simple'); ?>>
                                         <?php esc_html_e('Simple products only', 'ewheel-importer'); ?>
                                     </option>
@@ -382,7 +385,7 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                     </option>
                                 </select>
                                 <p class="description">
-                                    <?php esc_html_e('"Simple" creates one product per variant. "Variable" creates a single product with variations.', 'ewheel-importer'); ?>
+                                    <?php esc_html_e('"Auto-detect" creates variable products when variants exist, simple otherwise.', 'ewheel-importer'); ?>
                                 </p>
                             </td>
                         </tr>

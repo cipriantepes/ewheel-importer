@@ -1,5 +1,9 @@
 = Changelog =
 
+2.2.4 – 2026-02-10
+Add – Auto-detect product type: products with variants → variable, without → simple.
+Tweak – Product Type Mode default changed to "Auto-detect".
+
 2.2.3 – 2026-02-10
 Tweak – Default product type mode changed to "simple" (no variable products).
 Add – Product Type Mode dropdown in Settings (simple vs variable).

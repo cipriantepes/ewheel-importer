@@ -21,6 +21,11 @@ class Configuration
     private const PREFIX = 'ewheel_importer_';
 
     /**
+     * Variation mode: auto-detect per product.
+     */
+    public const VARIATION_MODE_AUTO = 'auto';
+
+    /**
      * Variation mode: variable products.
      */
     public const VARIATION_MODE_VARIABLE = 'variable';
@@ -78,7 +83,7 @@ class Configuration
             'short_description' => '',
         ],
         'openrouter_model' => 'google/gemini-2.0-flash:free',
-        'variation_mode' => self::VARIATION_MODE_SIMPLE, // 'variable' or 'simple'
+        'variation_mode' => self::VARIATION_MODE_AUTO, // 'auto', 'variable', or 'simple'
         'notify_on_sync' => true,
     ];
 
@@ -247,24 +252,31 @@ class Configuration
     /**
      * Get variation mode.
      *
-     * @return string 'variable' or 'simple'
+     * @return string 'auto', 'variable', or 'simple'
      */
     public function get_variation_mode(): string
     {
         $mode = (string) $this->get('variation_mode');
-        return in_array($mode, [self::VARIATION_MODE_VARIABLE, self::VARIATION_MODE_SIMPLE], true)
+        return in_array($mode, [self::VARIATION_MODE_AUTO, self::VARIATION_MODE_VARIABLE, self::VARIATION_MODE_SIMPLE], true)
             ? $mode
-            : self::VARIATION_MODE_VARIABLE;
+            : self::VARIATION_MODE_AUTO;
     }
 
     /**
-     * Check if using variable product mode.
+     * Check if a product should use variable product mode.
      *
+     * In 'auto' mode, decides per-product based on whether variants exist.
+     *
+     * @param bool $has_variants Whether the product has variants.
      * @return bool
      */
-    public function is_variable_product_mode(): bool
+    public function is_variable_product_mode(bool $has_variants = false): bool
     {
-        return $this->get_variation_mode() === self::VARIATION_MODE_VARIABLE;
+        $mode = $this->get_variation_mode();
+        if ($mode === self::VARIATION_MODE_AUTO) {
+            return $has_variants;
+        }
+        return $mode === self::VARIATION_MODE_VARIABLE;
     }
 
     /**
