@@ -529,6 +529,11 @@ class SyncBatchProcessor
             delete_transient($this->get_lock_key($profile_id));
 
             PersistentLogger::success('Sync fully completed.', null, $sync_id, $profile_id);
+
+            // Email notification
+            if ($this->config->get('notify_on_sync')) {
+                $this->send_sync_email('completed', $status, $profile_id);
+            }
         }
     }
 
@@ -606,7 +611,50 @@ class SyncBatchProcessor
 
             // Release lock
             delete_transient($this->get_lock_key($profile_id));
+
+            // Email notification
+            if ($this->config->get('notify_on_sync')) {
+                $this->send_sync_email('failed', $status, $profile_id);
+            }
         }
+    }
+
+    /**
+     * Send email notification about sync result.
+     *
+     * @param string   $type       'completed' or 'failed'.
+     * @param array    $status     Sync status array.
+     * @param int|null $profile_id Profile ID.
+     */
+    private function send_sync_email(string $type, array $status, ?int $profile_id): void
+    {
+        $admin_email = get_option('admin_email');
+        if (empty($admin_email)) {
+            return;
+        }
+
+        $site_name = get_bloginfo('name');
+        $subject = sprintf('[%s] Sync %s', $site_name, $type);
+
+        $started = $status['started_at'] ?? time();
+        $duration = human_time_diff($started, time());
+
+        $lines = [
+            sprintf('Sync %s.', $type),
+            '',
+            sprintf('Processed: %d', $status['processed'] ?? 0),
+            sprintf('Created: %d', $status['created'] ?? 0),
+            sprintf('Updated: %d', $status['updated'] ?? 0),
+            sprintf('Failed: %d', $status['failed'] ?? 0),
+            sprintf('Duration: %s', $duration),
+        ];
+
+        if ($type === 'failed' && !empty($status['error'])) {
+            $lines[] = '';
+            $lines[] = sprintf('Error: %s', $status['error']);
+        }
+
+        wp_mail($admin_email, $subject, implode("\n", $lines));
     }
 
     /**

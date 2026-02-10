@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Usage:
+#   bin/build-release.sh            # Build ZIP only
+#   bin/build-release.sh --release  # Commit, push, build ZIP, create GitHub release
+
+RELEASE_MODE=false
+if [ "$1" = "--release" ]; then
+    RELEASE_MODE=true
+fi
+
 # Define plugin name
 PLUGIN_SLUG="ewheel-importer"
 MAIN_FILE="${PLUGIN_SLUG}.php"
@@ -14,6 +23,14 @@ fi
 
 echo "Detected version: $VERSION"
 ZIP_NAME="${PLUGIN_SLUG}.${VERSION}.zip"
+
+# In release mode, commit and push first (PUC reads version from tagged commit)
+if [ "$RELEASE_MODE" = true ]; then
+    echo "Committing and pushing..."
+    git add -A
+    git commit -m "Release v${VERSION}" || echo "Nothing to commit"
+    git push origin main || { echo "Push failed"; exit 1; }
+fi
 
 # Ensure clean state
 echo "Cleaning up..."
@@ -45,3 +62,13 @@ cd ..
 rm -rf "build"
 
 echo "Done! Release package created: $ZIP_NAME"
+
+# In release mode, create GitHub release
+if [ "$RELEASE_MODE" = true ]; then
+    echo "Creating GitHub release v${VERSION}..."
+    gh release create "v${VERSION}" "$ZIP_NAME" \
+        --title "v${VERSION}" \
+        --generate-notes \
+        || { echo "Release creation failed"; exit 1; }
+    echo "Released v${VERSION} on GitHub"
+fi

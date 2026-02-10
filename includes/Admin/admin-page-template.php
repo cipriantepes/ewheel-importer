@@ -361,6 +361,24 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                         <?php esc_html_e('Weekly', 'ewheel-importer'); ?>
                                     </option>
                                 </select>
+                                <p class="description">
+                                    <?php esc_html_e('Scheduled syncs run incrementally (only changed products).', 'ewheel-importer'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="ewheel_importer_notify_on_sync">
+                                    <?php esc_html_e('Email Notifications', 'ewheel-importer'); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" id="ewheel_importer_notify_on_sync"
+                                        name="ewheel_importer_notify_on_sync" value="1"
+                                        <?php checked($settings['notify_on_sync'] ?? true); ?>>
+                                    <?php esc_html_e('Send email to admin when sync completes or fails', 'ewheel-importer'); ?>
+                                </label>
                             </td>
                         </tr>
                         <tr>

@@ -19,6 +19,7 @@ Thumbs.db
 # Build
 *.log
 coverage/
+.phpunit.result.cache
 
 # WordPress
 *.sql

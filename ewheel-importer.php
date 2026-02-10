@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.1.2
+ * Version:           2.2.0
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.1.2');
+define('EWHEEL_IMPORTER_VERSION', '2.2.0');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -314,10 +314,20 @@ final class Ewheel_Importer
             'target_language',
             'sync_fields',
             'sync_protection',
+            'notify_on_sync',
         ];
 
         foreach ($settings as $setting) {
             register_setting('ewheel_importer_settings', 'ewheel_importer_' . $setting);
+        }
+
+        // Reschedule cron when settings are saved
+        if (isset($_POST['ewheel_importer_sync_frequency'])) {
+            wp_clear_scheduled_hook('ewheel_importer_cron_sync');
+            $frequency = sanitize_text_field(wp_unslash($_POST['ewheel_importer_sync_frequency']));
+            if ($frequency !== 'manual') {
+                wp_schedule_event(time(), $frequency, 'ewheel_importer_cron_sync');
+            }
         }
     }
 
@@ -2321,6 +2331,26 @@ final class Ewheel_Importer
             'display' => __('Once Weekly', 'ewheel-importer'),
         ];
         return $schedules;
+    }
+
+    /**
+     * Run scheduled (cron) sync — incremental, only changed products.
+     *
+     * @return void
+     */
+    public function run_scheduled_sync(): void
+    {
+        $launcher = $this->container->get(SyncLauncher::class);
+
+        if ($launcher->is_sync_running()) {
+            return;
+        }
+
+        try {
+            $launcher->start_incremental_sync();
+        } catch (\Exception $e) {
+            error_log('[Ewheel Cron] Failed: ' . $e->getMessage());
+        }
     }
 
     /**
