@@ -129,26 +129,37 @@
                     if (data) {
                         var processed = data.processed || 0;
                         var total = data.total_products || 0;
-                        msg = 'Page: ' + (data.page || 0) + ' | Products: ' + processed;
-                        if (data.created) msg += ' | Created: ' + data.created;
-                        if (data.updated) msg += ' | Updated: ' + data.updated;
-                        if (data.batch_size && data.batch_size < 10) {
-                            msg += ' | Batch: ' + data.batch_size;
-                        }
-                        if (data.failure_count && data.failure_count > 0) {
-                            msg += ' | Retries: ' + data.failure_count;
-                        }
-                        $details.text(msg);
 
-                        // Update progress bar
-                        if (total > 0 && processed > 0) {
-                            var pct = Math.min(Math.round((processed / total) * 100), 100);
-                            $progressBar.css('width', pct + '%');
-                            $progressText.text(pct + '%');
-                        } else if (processed > 0) {
-                            // No total known — show indeterminate with count
-                            $progressBar.css('width', '100%');
-                            $progressText.text(processed + ' processed');
+                        if (data._stockSync) {
+                            msg = 'Syncing stock levels... (' + processed + ' products processed)';
+                            $details.text(msg);
+                            // Stock sync = near completion
+                            if (total > 0) {
+                                $progressBar.css('width', '95%');
+                                $progressText.text('95%');
+                            }
+                        } else {
+                            msg = 'Page: ' + (data.page || 0) + ' | Products: ' + processed;
+                            if (data.created) msg += ' | Created: ' + data.created;
+                            if (data.updated) msg += ' | Updated: ' + data.updated;
+                            if (data.batch_size && data.batch_size < 10) {
+                                msg += ' | Batch: ' + data.batch_size;
+                            }
+                            if (data.failure_count && data.failure_count > 0) {
+                                msg += ' | Retries: ' + data.failure_count;
+                            }
+                            $details.text(msg);
+
+                            // Update progress bar
+                            if (total > 0 && processed > 0) {
+                                var pct = Math.min(Math.round((processed / total) * 100), 99);
+                                $progressBar.css('width', pct + '%');
+                                $progressText.text(pct + '%');
+                            } else if (processed > 0) {
+                                // No total known — show indeterminate with count
+                                $progressBar.css('width', '100%');
+                                $progressText.text(processed + ' processed');
+                            }
                         }
                     }
                     $status.removeClass('success error').addClass('syncing').text(msg);
@@ -454,75 +465,87 @@
                 success: function (response) {
                     self._pollPending = false;
 
-                    // Restore normal interval on success after backoff
-                    if (self._pollErrorCount > 0) {
-                        self._pollInterval = self._pollIntervalBase;
-                        self._restartPollTimer();
-                    }
-                    self._pollErrorCount = 0;
-
-                    if (response.success && response.data) {
-                        // Update status UI from response.data.status
-                        var statusData = response.data.status;
-                        var status = statusData.status;
-
-                        // Store sync_id for cancel operations
-                        if (statusData.id) {
-                            self.currentSyncId = statusData.id;
+                    try {
+                        // Restore normal interval on success after backoff
+                        if (self._pollErrorCount > 0) {
+                            self._pollInterval = self._pollIntervalBase;
+                            self._restartPollTimer();
                         }
+                        self._pollErrorCount = 0;
 
-                        // Update log console from response.data.logs
-                        self._updateLogConsole(response.data.logs);
+                        if (response.success && response.data) {
+                            // Update status UI from response.data.status
+                            var statusData = response.data.status || {};
+                            var status = statusData.status || 'idle';
 
-                        // Stop polling if no active sync
-                        if (!status || status === 'idle' || status === 'completed' || status === 'failed' || status === 'stopped') {
-                            self.stopPolling();
-                            self.currentSyncId = null;
-
-                            // Update UI based on final status
-                            if (status === 'completed') {
-                                self.updateSyncUI('completed', statusData);
-                            } else if (status === 'stopped') {
-                                self.updateSyncUI('stopped', statusData);
-                            } else if (status === 'failed') {
-                                self.updateSyncUI('failed', statusData);
-                            } else {
-                                self.updateSyncUI('idle', statusData);
+                            // Store sync_id for cancel operations
+                            if (statusData.id) {
+                                self.currentSyncId = statusData.id;
                             }
 
-                            // Final log update after delay
-                            setTimeout(function () {
-                                $.post(ewheelImporter.ajaxUrl, {
-                                    action: 'ewheel_get_logs',
-                                    nonce: ewheelImporter.nonce
-                                }, function (logResponse) {
-                                    if (logResponse.success && logResponse.data) {
-                                        self._updateLogConsole(logResponse.data);
-                                    }
-                                });
-                            }, 5000);
+                            // Update log console from response.data.logs
+                            self._updateLogConsole(response.data.logs);
 
-                            // Reload page on completion after a delay
-                            if (status === 'completed') {
+                            // Stop polling if no active sync
+                            if (!status || status === 'idle' || status === 'completed' || status === 'failed' || status === 'stopped') {
+                                self.stopPolling();
+                                self.currentSyncId = null;
+
+                                // Update UI based on final status
+                                if (status === 'completed') {
+                                    self.updateSyncUI('completed', statusData);
+                                } else if (status === 'stopped') {
+                                    self.updateSyncUI('stopped', statusData);
+                                } else if (status === 'failed') {
+                                    self.updateSyncUI('failed', statusData);
+                                } else {
+                                    self.updateSyncUI('idle', statusData);
+                                }
+
+                                // Final log update after delay
                                 setTimeout(function () {
-                                    location.reload();
-                                }, 3000);
+                                    $.post(ewheelImporter.ajaxUrl, {
+                                        action: 'ewheel_get_logs',
+                                        nonce: ewheelImporter.nonce
+                                    }, function (logResponse) {
+                                        if (logResponse.success && logResponse.data) {
+                                            self._updateLogConsole(logResponse.data);
+                                        }
+                                    });
+                                }, 5000);
+
+                                // Reload page on completion after a delay
+                                if (status === 'completed') {
+                                    setTimeout(function () {
+                                        location.reload();
+                                    }, 3000);
+                                }
+                                return;
                             }
-                            return;
-                        }
 
-                        // Update UI for active states
-                        if (status === 'paused') {
+                            // Update UI for active states
+                            if (status === 'paused') {
+                                self.stopPolling();
+                                self.updateSyncUI('paused', statusData);
+                                return;
+                            }
+
+                            // Map syncing_stock to running state with descriptive message
+                            if (status === 'syncing_stock') {
+                                statusData._stockSync = true;
+                                self.updateSyncUI('running', statusData);
+                                return;
+                            }
+
+                            self.updateSyncUI(status, statusData);
+                        } else {
+                            // No data or error - stop polling
                             self.stopPolling();
-                            self.updateSyncUI('paused', statusData);
-                            return;
+                            self.updateSyncUI('idle', {});
                         }
-
-                        self.updateSyncUI(status, statusData);
-                    } else {
-                        // No data or error - stop polling
-                        self.stopPolling();
-                        self.updateSyncUI('idle', {});
+                    } catch (e) {
+                        console.error('[Ewheel] Poll handler error:', e);
+                        // Don't stop polling on JS error — next poll will retry
                     }
                 },
                 error: function (xhr, status, error) {
