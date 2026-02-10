@@ -368,6 +368,26 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                         </tr>
                         <tr>
                             <th scope="row">
+                                <label for="ewheel_importer_variation_mode">
+                                    <?php esc_html_e('Product Type Mode', 'ewheel-importer'); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <select id="ewheel_importer_variation_mode" name="ewheel_importer_variation_mode">
+                                    <option value="simple" <?php selected($settings['variation_mode'], 'simple'); ?>>
+                                        <?php esc_html_e('Simple products only', 'ewheel-importer'); ?>
+                                    </option>
+                                    <option value="variable" <?php selected($settings['variation_mode'], 'variable'); ?>>
+                                        <?php esc_html_e('Variable products (with variations)', 'ewheel-importer'); ?>
+                                    </option>
+                                </select>
+                                <p class="description">
+                                    <?php esc_html_e('"Simple" creates one product per variant. "Variable" creates a single product with variations.', 'ewheel-importer'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
                                 <label for="ewheel_importer_notify_on_sync">
                                     <?php esc_html_e('Email Notifications', 'ewheel-importer'); ?>
                                 </label>

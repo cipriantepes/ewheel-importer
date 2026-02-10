@@ -1,5 +1,9 @@
 = Changelog =
 
+2.2.3 – 2026-02-10
+Tweak – Default product type mode changed to "simple" (no variable products).
+Add – Product Type Mode dropdown in Settings (simple vs variable).
+
 2.2.2 – 2026-02-10
 Fix – Polling resilience: JS errors no longer kill the status poller (try-catch guard).
 Add – Stock sync phase now shows "Syncing stock levels..." instead of appearing stuck.
