@@ -376,12 +376,18 @@ class ProductTransformer
 
         $products = [];
 
+        $is_single_variant = count($variants) <= 1;
+
         foreach ($variants as $variant) {
             $v = array_change_key_case($variant, CASE_LOWER);
 
             // Build variant-specific name (e.g., "Scooter X500 - Red")
-            $variant_attrs = $this->extract_variant_attribute_values($v);
-            $variant_suffix = !empty($variant_attrs) ? ' - ' . implode(', ', $variant_attrs) : '';
+            // Single-variant products don't need a suffix — nothing to disambiguate.
+            $variant_suffix = '';
+            if (!$is_single_variant) {
+                $variant_attrs = $this->extract_variant_attribute_values($v);
+                $variant_suffix = !empty($variant_attrs) ? ' - ' . implode(', ', $variant_attrs) : '';
+            }
 
             $woo_product = [
                 'sku' => $v['reference'] ?? ($variant['Reference'] ?? ''),
@@ -554,10 +560,18 @@ class ProductTransformer
         $values = [];
 
         foreach ($attrs as $key => $val) {
+            $name = $key;
             $value = $val;
 
             if (is_array($val)) {
+                $name = $val['alias'] ?? ($val['Alias'] ?? $key);
                 $value = $val['value'] ?? ($val['Value'] ?? '');
+            }
+
+            // Only include visible, user-facing attributes (color, size, etc.)
+            $normalized_key = AttributeConfiguration::normalize_key((string) $name);
+            if (!AttributeConfiguration::is_visible($normalized_key)) {
+                continue;
             }
 
             if (is_array($value)) {

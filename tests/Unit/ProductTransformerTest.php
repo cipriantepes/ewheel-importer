@@ -272,6 +272,57 @@ class ProductTransformerTest extends TestCase {
     }
 
     /**
+     * Test single-variant product has no garbage suffix in name.
+     */
+    public function test_single_variant_product_has_no_suffix(): void {
+        $translations = [
+            'Reflective Vest' => 'Vestă reflectorizantă',
+        ];
+        $translator        = MockFactory::translator_with_map( $translations );
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
+        $ewheel_product = ProductFixtures::single_variant_product_with_garbage_attrs();
+
+        $result = $transformer->transform( $ewheel_product );
+
+        $this->assertCount( 1, $result );
+        $this->assertEquals( 'simple', $result[0]['type'] );
+        $this->assertEquals( 'VEST-001', $result[0]['sku'] );
+        // Name should be clean — no " - None, 159, false, ..." garbage
+        $this->assertEquals( 'Vestă reflectorizantă', $result[0]['name'] );
+    }
+
+    /**
+     * Test multi-variant product suffix only includes visible attributes.
+     */
+    public function test_multi_variant_suffix_only_visible_attrs(): void {
+        $translations = [
+            'Scooter Tire' => 'Anvelopă trotinetă',
+        ];
+        $translator        = MockFactory::translator_with_map( $translations );
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
+        $ewheel_product = ProductFixtures::multi_variant_with_mixed_attrs();
+
+        $result = $transformer->transform( $ewheel_product );
+
+        $this->assertCount( 2, $result );
+
+        // Suffix should only contain "medida" value (visible), not estatus/peso/barcode
+        $this->assertStringContains( '10 inch', $result[0]['name'] );
+        $this->assertStringNotContains( '0.5', $result[0]['name'] );
+        $this->assertStringNotContains( '1234567890123', $result[0]['name'] );
+        $this->assertStringNotContains( 'M', $result[0]['name'] );
+
+        $this->assertStringContains( '8 inch', $result[1]['name'] );
+        $this->assertStringNotContains( '0.4', $result[1]['name'] );
+    }
+
+    /**
      * Helper to check if string contains substring.
      *
      * @param string $needle   The substring to search for.
@@ -282,6 +333,20 @@ class ProductTransformerTest extends TestCase {
         $this->assertTrue(
             strpos( $haystack, $needle ) !== false,
             "Failed asserting that '$haystack' contains '$needle'"
+        );
+    }
+
+    /**
+     * Helper to check if string does NOT contain substring.
+     *
+     * @param string $needle   The substring to search for.
+     * @param string $haystack The string to search in.
+     * @return void
+     */
+    private function assertStringNotContains( string $needle, string $haystack ): void {
+        $this->assertFalse(
+            strpos( $haystack, $needle ) !== false,
+            "Failed asserting that '$haystack' does NOT contain '$needle'"
         );
     }
 }

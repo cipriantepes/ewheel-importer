@@ -1,5 +1,11 @@
 = Changelog =
 
+2.2.7 – 2026-02-11
+Fix – Product names no longer contain garbage variant metadata (IDs, dates, barcodes, etc.).
+Fix – Single-variant products skip the variant suffix entirely (nothing to disambiguate).
+Fix – Multi-variant name suffix now only includes visible attributes (color, size, etc.).
+Dev – 2 new tests for product name generation (187 tests total).
+
 2.2.6 – 2026-02-11
 Perf – Bulk product lookup cache: ~7,000 individual DB queries replaced with 3 bulk queries.
 Perf – wp_cache_flush() moved from per-product to per-batch (reduces overhead).
