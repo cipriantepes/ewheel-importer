@@ -295,6 +295,44 @@ class ProductTransformerTest extends TestCase {
     }
 
     /**
+     * Test dimensions extracted from variant attributes.
+     */
+    public function test_dimensions_from_variant_attributes(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false );
+
+        $transformer    = new ProductTransformer( $translator, $pricing_converter, $config );
+        $ewheel_product = ProductFixtures::single_variant_product_with_garbage_attrs(
+            [
+                'Variants' => [
+                    [
+                        'Id'         => 'V001',
+                        'Reference'  => 'VEST-001',
+                        'net'        => 19.99,
+                        'Attributes' => [
+                            'peso'  => '0.178',
+                            'alto'  => '25',
+                            'ancho' => '15',
+                            'largo' => '3',
+                        ],
+                    ],
+                ],
+            ]
+        );
+
+        $result = $transformer->transform( $ewheel_product );
+
+        $this->assertCount( 1, $result );
+        $this->assertArrayHasKey( '_dimensions', $result[0] );
+        $dims = $result[0]['_dimensions'];
+        $this->assertEquals( 0.178, $dims['weight'] );
+        $this->assertEquals( 25.0, $dims['height'] );
+        $this->assertEquals( 15.0, $dims['width'] );
+        $this->assertEquals( 3.0, $dims['length'] );
+    }
+
+    /**
      * Test multi-variant product suffix only includes visible attributes.
      */
     public function test_multi_variant_suffix_only_visible_attrs(): void {

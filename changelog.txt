@@ -1,5 +1,10 @@
 = Changelog =
 
+2.2.8 – 2026-02-11
+Add – Shipping dimensions (weight, height, width, length) extracted from variant attributes.
+Fix – Simple-expanded products now populate WooCommerce shipping fields from variant-level peso/alto/ancho/largo.
+Dev – 1 new test for variant dimension extraction (188 tests total).
+
 2.2.7 – 2026-02-11
 Fix – Product names no longer contain garbage variant metadata (IDs, dates, barcodes, etc.).
 Fix – Single-variant products skip the variant suffix entirely (nothing to disambiguate).

@@ -442,8 +442,34 @@ class ProductTransformer
                 $woo_product['_brand'] = $pipe_data['brand'];
             }
 
-            if (!empty($pipe_data['dimensions'])) {
-                $woo_product['_dimensions'] = $pipe_data['dimensions'];
+            // Dimensions: start with pipe-data, supplement with variant attributes
+            $dims = $pipe_data['dimensions'] ?? [];
+            $variant_raw_attrs_for_dims = $v['attributes'] ?? ($variant['Attributes'] ?? []);
+            if (is_array($variant_raw_attrs_for_dims)) {
+                foreach ($variant_raw_attrs_for_dims as $dk => $dv) {
+                    $d_alias = $dk;
+                    $d_value = $dv;
+                    if (is_array($dv)) {
+                        $d_alias = $dv['alias'] ?? ($dv['Alias'] ?? $dk);
+                        $d_value = $dv['value'] ?? ($dv['Value'] ?? '');
+                    }
+                    $d_alias = strtolower((string) $d_alias);
+                    if (!is_numeric($d_value) || (float) $d_value <= 0) {
+                        continue;
+                    }
+                    if ($d_alias === 'peso' && empty($dims['weight'])) {
+                        $dims['weight'] = (float) $d_value;
+                    } elseif ($d_alias === 'ancho' && empty($dims['width'])) {
+                        $dims['width'] = (float) $d_value;
+                    } elseif ($d_alias === 'alto' && empty($dims['height'])) {
+                        $dims['height'] = (float) $d_value;
+                    } elseif (($d_alias === 'largo' || $d_alias === 'longitud') && empty($dims['length'])) {
+                        $dims['length'] = (float) $d_value;
+                    }
+                }
+            }
+            if (!empty(array_filter($dims))) {
+                $woo_product['_dimensions'] = $dims;
             }
 
             if (!empty($pipe_data['gtin']['ean'])) {
