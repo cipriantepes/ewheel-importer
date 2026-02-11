@@ -246,6 +246,25 @@ class SyncBatchProcessor
             }
 
             PersistentLogger::info("API filters: " . wp_json_encode($api_filters), null, $sync_id, $profile_id);
+
+            // Warm product lookup cache (3 queries replace ~2-4 per product)
+            $lookup_cache = new ProductLookupCache();
+            $lookup_cache->warm();
+            $this->woo_sync->set_lookup_cache($lookup_cache);
+
+            $cache_stats = $lookup_cache->get_stats();
+            PersistentLogger::info(
+                sprintf(
+                    '[Performance] Lookup cache: %d SKUs, %d refs, %d bases',
+                    $cache_stats['sku_count'],
+                    $cache_stats['reference_count'],
+                    $cache_stats['base_count']
+                ),
+                null,
+                $sync_id,
+                $profile_id
+            );
+
             PersistentLogger::info("Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
 
             // Fetch products for this page with adaptive batch size
@@ -455,6 +474,11 @@ class SyncBatchProcessor
         $is_full_sync = $sync_type === 'full' && empty($status['limit']);
 
         PersistentLogger::info('Starting stock synchronization...', null, $sync_id, $profile_id);
+
+        // Warm lookup cache for stock sync SKU lookups
+        $lookup_cache = new ProductLookupCache();
+        $lookup_cache->warm();
+        $this->woo_sync->set_lookup_cache($lookup_cache);
 
         try {
             // For partial syncs, only update stock for the synced products

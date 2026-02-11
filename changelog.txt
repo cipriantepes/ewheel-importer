@@ -1,5 +1,11 @@
 = Changelog =
 
+2.2.6 – 2026-02-11
+Perf – Bulk product lookup cache: ~7,000 individual DB queries replaced with 3 bulk queries.
+Perf – wp_cache_flush() moved from per-product to per-batch (reduces overhead).
+Add – ProductLookupCache class for O(1) SKU/reference existence checks during sync.
+Dev – 16 new unit tests for ProductLookupCache (185 tests total).
+
 2.2.5 – 2026-02-11
 Fix – Single-variant products now created as simple (SKU, GTIN populated correctly).
 Fix – Barcode extraction from variant attributes (codigo-alternativo EAN/UPC).

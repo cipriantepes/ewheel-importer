@@ -101,6 +101,13 @@ class WooCommerceSync
     private Translator $translator;
 
     /**
+     * Product lookup cache for O(1) existence checks.
+     *
+     * @var ProductLookupCache|null
+     */
+    private ?ProductLookupCache $lookup_cache = null;
+
+    /**
      * Constructor.
      *
      * @param EwheelApiClient                                     $ewheel_client       The ewheel API client.
@@ -136,6 +143,18 @@ class WooCommerceSync
         $this->model_service = $model_service;
         $this->config = $config;
         $this->translator = $translator;
+    }
+
+    /**
+     * Set the product lookup cache.
+     *
+     * When set, sync methods use O(1) hash map lookups instead of individual DB queries.
+     *
+     * @param ProductLookupCache $cache The warmed cache instance.
+     */
+    public function set_lookup_cache(ProductLookupCache $cache): void
+    {
+        $this->lookup_cache = $cache;
     }
 
     /**
@@ -551,10 +570,11 @@ class WooCommerceSync
 
             // Memory cleanup after each raw product
             unset($raw_product, $transformed_products);
-
-            // Flush WP object cache periodically to prevent memory bloat
-            wp_cache_flush();
         }
+
+        // Flush WP object cache once at end of batch (not per-product)
+        // SyncBatchProcessor::cleanup_batch_memory() also flushes after each batch
+        wp_cache_flush();
 
         error_log("[Ewheel WooSync] Batch complete: created={$results['created']}, updated={$results['updated']}, errors={$results['errors']}");
         return $results;
@@ -613,8 +633,14 @@ class WooCommerceSync
     {
         $sku = $product_data['sku'] ?? '';
 
-        // Check if product exists by SKU
-        $existing_id = !empty($sku) ? wc_get_product_id_by_sku($sku) : 0;
+        // Check if product exists by SKU — use cache if available
+        if (!empty($sku)) {
+            $existing_id = $this->lookup_cache
+                ? $this->lookup_cache->find_by_sku($sku)
+                : wc_get_product_id_by_sku($sku);
+        } else {
+            $existing_id = 0;
+        }
 
         // For variable products (empty SKU), look up by _ewheel_reference meta
         if (!$existing_id && empty($sku)) {
@@ -626,6 +652,7 @@ class WooCommerceSync
         try {
             if ($existing_id) {
                 $this->update_product($existing_id, $product_data);
+                $this->record_in_cache($existing_id, $product_data);
                 PersistentLogger::info("Product updated - ID: {$existing_id}, SKU: {$sku}");
                 return 'updated';
             } else {
@@ -640,6 +667,7 @@ class WooCommerceSync
                 }
 
                 $new_id = $this->create_product($product_data);
+                $this->record_in_cache($new_id, $product_data);
                 PersistentLogger::info("Product created - ID: {$new_id}, SKU: {$sku}");
                 return 'created';
             }
@@ -654,6 +682,35 @@ class WooCommerceSync
             }
             return 'error';
         }
+    }
+
+    /**
+     * Record a product's identifiers in the lookup cache after create/update.
+     *
+     * @param int   $product_id   The product ID.
+     * @param array $product_data The product data array.
+     */
+    private function record_in_cache(int $product_id, array $product_data): void
+    {
+        if (!$this->lookup_cache) {
+            return;
+        }
+
+        $sku = $product_data['sku'] ?? '';
+        $reference = '';
+        $base = '';
+
+        if (!empty($product_data['meta_data'])) {
+            foreach ($product_data['meta_data'] as $meta) {
+                if ($meta['key'] === '_ewheel_reference') {
+                    $reference = $meta['value'];
+                } elseif ($meta['key'] === '_ewheel_reference_base') {
+                    $base = $meta['value'];
+                }
+            }
+        }
+
+        $this->lookup_cache->record($product_id, $sku, $reference, $base);
     }
 
     /**
@@ -683,7 +740,19 @@ class WooCommerceSync
             return null;
         }
 
-        // Look for existing products with the same base reference
+        // Use cache if available
+        if ($this->lookup_cache) {
+            $parent_id = $this->lookup_cache->find_by_reference_base($reference_base);
+            if ($parent_id) {
+                return $parent_id;
+            }
+
+            $parent_sku = $reference_base . '-parent';
+            $parent_by_sku = $this->lookup_cache->find_by_sku($parent_sku);
+            return $parent_by_sku ?: null;
+        }
+
+        // Fallback: original DB query path
         global $wpdb;
 
         $parent_id = $wpdb->get_var(
@@ -700,7 +769,6 @@ class WooCommerceSync
             return (int) $parent_id;
         }
 
-        // Also check for parent SKU pattern (e.g., base-parent)
         $parent_sku = $reference_base . '-parent';
         $parent_by_sku = wc_get_product_id_by_sku($parent_sku);
 
@@ -737,7 +805,32 @@ class WooCommerceSync
             return 0;
         }
 
-        // Look up by _ewheel_reference meta
+        // Use cache if available
+        if ($this->lookup_cache) {
+            $product_id = $this->lookup_cache->find_by_reference($ewheel_ref);
+            if ($product_id) {
+                return $product_id;
+            }
+
+            // Migration: check old -parent SKU via cache
+            if (strpos($ewheel_ref, '-parent') !== false) {
+                $old_sku_id = $this->lookup_cache->find_by_sku($ewheel_ref);
+                if ($old_sku_id) {
+                    $product = wc_get_product($old_sku_id);
+                    if ($product) {
+                        $product->set_sku('');
+                        $product->save();
+                        $this->lookup_cache->remove_sku($ewheel_ref);
+                        PersistentLogger::info("[Migration] Cleared old -parent SKU from product {$old_sku_id}: {$ewheel_ref}");
+                    }
+                    return $old_sku_id;
+                }
+            }
+
+            return 0;
+        }
+
+        // Fallback: original DB query path
         global $wpdb;
         $product_id = $wpdb->get_var(
             $wpdb->prepare(
@@ -757,7 +850,6 @@ class WooCommerceSync
         if (strpos($ewheel_ref, '-parent') !== false) {
             $old_sku_id = wc_get_product_id_by_sku($ewheel_ref);
             if ($old_sku_id) {
-                // Clear the old -parent SKU so it doesn't conflict
                 $product = wc_get_product($old_sku_id);
                 if ($product) {
                     $product->set_sku('');
@@ -876,7 +968,9 @@ class WooCommerceSync
         $skipped = 0;
 
         foreach ($stock_map as $variant_ref => $stock_qty) {
-            $product_id = wc_get_product_id_by_sku($variant_ref);
+            $product_id = $this->lookup_cache
+                ? $this->lookup_cache->find_by_sku($variant_ref)
+                : wc_get_product_id_by_sku($variant_ref);
 
             if (!$product_id) {
                 $skipped++;
