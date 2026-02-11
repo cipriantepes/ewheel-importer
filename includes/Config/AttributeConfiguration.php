@@ -43,10 +43,6 @@ class AttributeConfiguration
      * Hidden attributes (filterable but not displayed on product page).
      */
     public const HIDDEN_ATTRIBUTES = [
-        'familia-sage',
-        'subfamilia-sage',
-        'subfamilia',
-        'catalogos',
         'tipo',
         'agrupacion-productos',
     ];
@@ -76,6 +72,10 @@ class AttributeConfiguration
         'codigo-alternativo'     => '_ewheel_ean',
         'codigo-alternativo-2'   => '_ewheel_upc',
         'sku-anterior'           => '_ewheel_previous_sku',
+        'familia-sage'           => '_ewheel_family',
+        'subfamilia-sage'        => '_ewheel_subfamily',
+        'subfamilia'             => '_ewheel_subfamily_alt',
+        'catalogos'              => '_ewheel_catalogs',
     ];
 
     /**

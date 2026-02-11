@@ -1,5 +1,10 @@
 = Changelog =
 
+2.3.0 – 2026-02-11
+Fix – Family, subfamily, and catalogs no longer created as product attributes or used for variations.
+Tweak – familia-sage, subfamilia-sage, subfamilia, catalogos moved from hidden attributes to meta storage.
+Tweak – Pipe-extracted family/subfamily now stored as _ewheel_family/_ewheel_subfamily meta instead of WooCommerce attributes.
+
 2.2.9 – 2026-02-11
 Add – Price rounding setting: none, round up to integer, .99 ending, nearest 5, nearest 10.
 Add – Price Rounding dropdown in Pricing Settings section.

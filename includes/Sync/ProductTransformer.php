@@ -199,6 +199,19 @@ class ProductTransformer
                 $woo_product['_dimensions'] = $pipe_data['dimensions'];
             }
 
+            // Store pipe meta (family, subfamily, etc.) as product meta
+            if (!empty($pipe_data['meta'])) {
+                foreach ($pipe_data['meta'] as $meta_key => $meta_value) {
+                    $wp_meta_key = AttributeConfiguration::get_meta_key($meta_key);
+                    if ($wp_meta_key) {
+                        $woo_product['meta_data'][] = [
+                            'key' => $wp_meta_key,
+                            'value' => $meta_value,
+                        ];
+                    }
+                }
+            }
+
             // GTIN and barcodes: only set on simple products, not variable parents
             // (variable product variations get their own GTIN via transform_variations)
             if ($product_type !== 'variable') {
@@ -440,6 +453,19 @@ class ProductTransformer
             // Store internal data for WooCommerceSync to process
             if (!empty($pipe_data['brand'])) {
                 $woo_product['_brand'] = $pipe_data['brand'];
+            }
+
+            // Store pipe meta (family, subfamily, etc.) as product meta
+            if (!empty($pipe_data['meta'])) {
+                foreach ($pipe_data['meta'] as $meta_key => $meta_value) {
+                    $wp_meta_key = AttributeConfiguration::get_meta_key($meta_key);
+                    if ($wp_meta_key) {
+                        $woo_product['meta_data'][] = [
+                            'key' => $wp_meta_key,
+                            'value' => $meta_value,
+                        ];
+                    }
+                }
             }
 
             // Dimensions: start with pipe-data, supplement with variant attributes
@@ -1774,20 +1800,14 @@ class ProductTransformer
             $result['dimensions']['length'] = (float) $parts[35];
         }
 
-        // Position 41: Family (hidden attribute)
+        // Position 41: Family (stored as meta, not attribute)
         if (!empty($parts[41]) && $parts[41] !== '/' && $parts[41] !== '0') {
-            $result['attributes']['familia-sage'] = [
-                'value' => $parts[41],
-                'visible' => AttributeConfiguration::get_visibility('familia-sage'),
-            ];
+            $result['meta']['familia-sage'] = $parts[41];
         }
 
-        // Position 42: Subfamily (hidden attribute)
+        // Position 42: Subfamily (stored as meta, not attribute)
         if (!empty($parts[42]) && $parts[42] !== '/' && $parts[42] !== '0') {
-            $result['attributes']['subfamilia-sage'] = [
-                'value' => $parts[42],
-                'visible' => AttributeConfiguration::get_visibility('subfamilia-sage'),
-            ];
+            $result['meta']['subfamilia-sage'] = $parts[42];
         }
 
         return $result;
