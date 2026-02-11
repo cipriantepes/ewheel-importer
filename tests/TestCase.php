@@ -22,6 +22,16 @@ abstract class TestCase extends PHPUnitTestCase {
     protected function setUp(): void {
         parent::setUp();
         Monkey\setUp();
+
+        // Set up minimal $wpdb mock so PersistentLogger doesn't error
+        if (!isset($GLOBALS['wpdb']) || !is_object($GLOBALS['wpdb'])) {
+            $wpdb = \Mockery::mock('wpdb');
+            $wpdb->prefix = 'wp_';
+            $wpdb->shouldReceive('prepare')->andReturn('');
+            $wpdb->shouldReceive('get_var')->andReturn(null);
+            $wpdb->shouldReceive('insert')->andReturn(true);
+            $GLOBALS['wpdb'] = $wpdb;
+        }
     }
 
     /**

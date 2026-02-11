@@ -212,6 +212,14 @@ class ProductTransformer
                 }
             }
 
+            // Family/Subfamily → product_cat, Catalogs → product_tag
+            if (!empty($pipe_data['family'])) {
+                $woo_product['_family'] = $pipe_data['family'];
+            }
+            if (!empty($pipe_data['subfamily'])) {
+                $woo_product['_subfamily'] = $pipe_data['subfamily'];
+            }
+
             // GTIN and barcodes: only set on simple products, not variable parents
             // (variable product variations get their own GTIN via transform_variations)
             if ($product_type !== 'variable') {
@@ -260,6 +268,18 @@ class ProductTransformer
                 }
 
                 $api_attributes = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
+
+                // Extract family/subfamily/catalogs from API attributes (fallback for pipe data)
+                $taxonomy_fields = $this->extract_taxonomy_fields(is_array($attrs_val) ? $attrs_val : []);
+                if (!empty($taxonomy_fields['family']) && empty($woo_product['_family'])) {
+                    $woo_product['_family'] = $taxonomy_fields['family'];
+                }
+                if (!empty($taxonomy_fields['subfamily']) && empty($woo_product['_subfamily'])) {
+                    $woo_product['_subfamily'] = $taxonomy_fields['subfamily'];
+                }
+                if (!empty($taxonomy_fields['catalogs'])) {
+                    $woo_product['_catalog_tags'] = $taxonomy_fields['catalogs'];
+                }
             }
 
             // Extract EAN/UPC from API attributes (codigo-alternativo, codigo-alternativo-2)
@@ -468,6 +488,14 @@ class ProductTransformer
                 }
             }
 
+            // Family/Subfamily → product_cat, Catalogs → product_tag
+            if (!empty($pipe_data['family'])) {
+                $woo_product['_family'] = $pipe_data['family'];
+            }
+            if (!empty($pipe_data['subfamily'])) {
+                $woo_product['_subfamily'] = $pipe_data['subfamily'];
+            }
+
             // Dimensions: start with pipe-data, supplement with variant attributes
             $dims = $pipe_data['dimensions'] ?? [];
             $variant_raw_attrs_for_dims = $v['attributes'] ?? ($variant['Attributes'] ?? []);
@@ -549,6 +577,18 @@ class ProductTransformer
                 }
 
                 $parent_attrs = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
+
+                // Extract family/subfamily/catalogs from parent API attributes (fallback for pipe data)
+                $taxonomy_fields = $this->extract_taxonomy_fields(is_array($attrs_val) ? $attrs_val : []);
+                if (!empty($taxonomy_fields['family']) && empty($woo_product['_family'])) {
+                    $woo_product['_family'] = $taxonomy_fields['family'];
+                }
+                if (!empty($taxonomy_fields['subfamily']) && empty($woo_product['_subfamily'])) {
+                    $woo_product['_subfamily'] = $taxonomy_fields['subfamily'];
+                }
+                if (!empty($taxonomy_fields['catalogs'])) {
+                    $woo_product['_catalog_tags'] = $taxonomy_fields['catalogs'];
+                }
             }
 
             // Extract EAN/UPC from parent API attributes (supplement pipe data)
@@ -569,8 +609,22 @@ class ProductTransformer
                 }
             }
 
-            // Extract EAN/UPC from variant attributes (codigo-alternativo lives on variants)
+            // Extract taxonomy fields from variant attributes (catalogs may live on variants)
             $variant_raw_attrs = $v['attributes'] ?? ($variant['Attributes'] ?? []);
+            if (is_array($variant_raw_attrs) && !empty($variant_raw_attrs)) {
+                $variant_taxonomy = $this->extract_taxonomy_fields($variant_raw_attrs);
+                if (!empty($variant_taxonomy['family']) && empty($woo_product['_family'])) {
+                    $woo_product['_family'] = $variant_taxonomy['family'];
+                }
+                if (!empty($variant_taxonomy['subfamily']) && empty($woo_product['_subfamily'])) {
+                    $woo_product['_subfamily'] = $variant_taxonomy['subfamily'];
+                }
+                if (!empty($variant_taxonomy['catalogs']) && empty($woo_product['_catalog_tags'])) {
+                    $woo_product['_catalog_tags'] = $variant_taxonomy['catalogs'];
+                }
+            }
+
+            // Extract EAN/UPC from variant attributes (codigo-alternativo lives on variants)
             if (is_array($variant_raw_attrs) && !empty($variant_raw_attrs)) {
                 $variant_barcode = $this->extract_barcode_from_attributes($variant_raw_attrs);
                 if (!empty($variant_barcode['ean']) && empty($woo_product['_gtin'])) {
@@ -1543,6 +1597,44 @@ class ProductTransformer
     }
 
     /**
+     * Extract family, subfamily, and catalogs from API attributes for taxonomy assignment.
+     *
+     * @param array $attributes Raw API attributes array.
+     * @return array ['family' => ?string, 'subfamily' => ?string, 'catalogs' => ?string]
+     */
+    public function extract_taxonomy_fields(array $attributes): array
+    {
+        $result = ['family' => null, 'subfamily' => null, 'catalogs' => null];
+
+        foreach ($attributes as $key => $value) {
+            $attr_name = $key;
+            $attr_val = $value;
+
+            if (is_array($value)) {
+                $attr_name = $value['alias'] ?? ($value['Alias'] ?? '');
+                $attr_val = $value['value'] ?? ($value['Value'] ?? '');
+            }
+
+            $normalized = AttributeConfiguration::normalize_key($attr_name);
+            $cleaned = $this->clean_attribute_value($attr_val);
+
+            if ($cleaned === null) {
+                continue;
+            }
+
+            if ($normalized === 'familia-sage') {
+                $result['family'] = $cleaned;
+            } elseif (in_array($normalized, ['subfamilia-sage', 'subfamilia'], true)) {
+                $result['subfamily'] = $cleaned;
+            } elseif ($normalized === 'catalogos') {
+                $result['catalogs'] = $cleaned;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Check if a product data array already has a specific meta key.
      *
      * @param array  $product_data The product data.
@@ -1800,13 +1892,15 @@ class ProductTransformer
             $result['dimensions']['length'] = (float) $parts[35];
         }
 
-        // Position 41: Family (stored as meta, not attribute)
+        // Position 41: Family → WooCommerce product_cat (parent category)
         if (!empty($parts[41]) && $parts[41] !== '/' && $parts[41] !== '0') {
+            $result['family'] = $parts[41];
             $result['meta']['familia-sage'] = $parts[41];
         }
 
-        // Position 42: Subfamily (stored as meta, not attribute)
+        // Position 42: Subfamily → WooCommerce product_cat (child of family)
         if (!empty($parts[42]) && $parts[42] !== '/' && $parts[42] !== '0') {
+            $result['subfamily'] = $parts[42];
             $result['meta']['subfamilia-sage'] = $parts[42];
         }
 

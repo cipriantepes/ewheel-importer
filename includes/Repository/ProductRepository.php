@@ -222,7 +222,10 @@ class ProductRepository implements RepositoryInterface {
                 continue;
             }
 
-            $attachment_id = $this->image_service->import_from_url( $url );
+            $attachment_id = $this->image_service->import_from_url( $url, [
+                'alt_text' => $product->get_name(),
+                'title'    => $product->get_name(),
+            ] );
             if ( $attachment_id ) {
                 $image_ids[] = $attachment_id;
             }

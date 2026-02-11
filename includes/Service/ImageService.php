@@ -22,10 +22,11 @@ class ImageService {
     /**
      * Import an image from URL.
      *
-     * @param string $url Image URL.
+     * @param string $url  Image URL.
+     * @param array  $meta Optional metadata: 'alt_text', 'title'.
      * @return int|null Attachment ID or null on failure.
      */
-    public function import_from_url( string $url ): ?int {
+    public function import_from_url( string $url, array $meta = [] ): ?int {
         if ( empty( $url ) ) {
             return null;
         }
@@ -36,10 +37,14 @@ class ImageService {
         // Check if already imported
         $existing = $this->find_by_source_url( $url );
         if ( $existing ) {
+            // Backfill alt text on existing images if missing
+            if ( ! empty( $meta['alt_text'] ) && ! get_post_meta( $existing, '_wp_attachment_image_alt', true ) ) {
+                update_post_meta( $existing, '_wp_attachment_image_alt', sanitize_text_field( $meta['alt_text'] ) );
+            }
             return $existing;
         }
 
-        return $this->download_and_attach( $url );
+        return $this->download_and_attach( $url, $meta );
     }
 
     /**
@@ -65,10 +70,11 @@ class ImageService {
     /**
      * Download image and create attachment.
      *
-     * @param string $url Image URL.
+     * @param string $url  Image URL.
+     * @param array  $meta Optional metadata: 'alt_text', 'title'.
      * @return int|null Attachment ID or null on failure.
      */
-    private function download_and_attach( string $url ): ?int {
+    private function download_and_attach( string $url, array $meta = [] ): ?int {
         $this->require_wp_media_functions();
 
         $temp_file = download_url( $url );
@@ -94,10 +100,33 @@ class ImageService {
             // Store source URL for future lookups
             update_post_meta( $attachment_id, self::SOURCE_URL_META, $url );
 
+            // Set SEO metadata (alt text + title)
+            $this->set_attachment_meta( $attachment_id, $meta );
+
             return $attachment_id;
         } finally {
             // Always clean up temp file (media_handle_sideload should move it, but be safe)
             $this->cleanup_temp_file( $temp_file );
+        }
+    }
+
+    /**
+     * Set attachment metadata (alt text, title).
+     *
+     * @param int   $attachment_id Attachment ID.
+     * @param array $meta          Metadata array with optional 'alt_text' and 'title'.
+     * @return void
+     */
+    private function set_attachment_meta( int $attachment_id, array $meta ): void {
+        if ( ! empty( $meta['alt_text'] ) ) {
+            update_post_meta( $attachment_id, '_wp_attachment_image_alt', sanitize_text_field( $meta['alt_text'] ) );
+        }
+
+        if ( ! empty( $meta['title'] ) ) {
+            wp_update_post( [
+                'ID'         => $attachment_id,
+                'post_title' => sanitize_text_field( $meta['title'] ),
+            ] );
         }
     }
 

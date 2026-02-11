@@ -334,6 +334,32 @@ class OpenRouterTranslateService implements TranslationServiceInterface
 
 TASK: Translate {$count} items from {$source_lang} to Romanian.
 
+DOMAIN: Electric scooter, bike, and personal mobility parts & accessories store.
+Use the correct Romanian technical terms for this domain:
+- Puños/Empuñaduras → Manșoane (handlebar grips), NOT 'Mânere'
+- Cubiertas → Anvelope (tires)
+- Cámaras de aire → Camere de aer (inner tubes)
+- Ruedas → Roți (wheels)
+- Llantas → Jante (rims)
+- Frenos → Frâne (brakes)
+- Pastillas de freno → Plăcuțe de frână (brake pads)
+- Guardabarros → Apărători de noroi (fenders/mudguards)
+- Manillar → Ghidon (handlebar)
+- Horquilla → Furcă (fork)
+- Amortiguador → Amortizor (shock absorber)
+- Caballete/Pata de cabra → Cric/Picior sprijin (kickstand)
+- Timbre → Sonerie (bell)
+- Candado → Lacăt (lock)
+- Cargador → Încărcător (charger)
+- Batería → Baterie/Acumulator (battery)
+- Controladora → Controler (controller)
+- Neumático → Anvelopă (tire/tyre)
+- Patinete eléctrico → Trotinetă electrică (electric scooter)
+- Bicicleta eléctrica → Bicicletă electrică (electric bike)
+- Repuesto → Piesă de schimb (spare part)
+- Accesorios → Accesorii (accessories)
+- Recambio → Piesă de schimb (replacement part)
+
 ROMANIAN GRAMMAR RULES:
 - Use proper Romanian diacritics: ă, â, î, ș, ț (NEVER use ş or ţ with cedilla)
 - Apply correct noun-adjective agreement (adjective follows noun, agrees in gender/number)
@@ -342,9 +368,9 @@ ROMANIAN GRAMMAR RULES:
 - Keep technical terms, brand names, model numbers, and measurements untranslated
 - Do NOT translate pure numbers — return them as-is
 - Capitalize only the first word and proper nouns (Romanian does not use Title Case)
-- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fara' (without), 'din' (from/of)
-- Product names: use natural Romanian word order (noun + adjective, e.g. 'Trotineta Electrica')
-- Short attribute values: translate concisely (e.g. 'Sin gel' = 'Fara gel', 'Si' = 'Da', 'No' = 'Nu')
+- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fără' (without), 'din' (from/of)
+- Product names: use natural Romanian word order (noun + adjective, e.g. 'Trotinetă electrică')
+- Short attribute values: translate concisely (e.g. 'Sin gel' = 'Fără gel', 'Sí' = 'Da', 'No' = 'Nu')
 
 FORMAT:
 - Input: numbered list (1. text, 2. text, ...)
@@ -352,8 +378,8 @@ FORMAT:
 - Return ONLY the numbered translations, nothing else
 
 Example:
-Input: 1. Patinete Electrico  2. Cubierta sin camara
-Output: 1. Trotineta electrica  2. Anvelopa fara camera";
+Input: 1. Patinete Eléctrico  2. Cubierta sin cámara  3. Puños de silicona rojos
+Output: 1. Trotinetă electrică  2. Anvelopă fără cameră  3. Manșoane din silicon roșii";
         }
 
         return "{$base}
@@ -376,6 +402,32 @@ Input is a numbered list. Return the same numbered format with translations only
         if ($target_lang === 'ro') {
             return $base_prompt . " Translate from {$source_lang} to Romanian following these rules:
 
+DOMAIN: Electric scooter, bike, and personal mobility parts & accessories store.
+Use the correct Romanian technical terms for this domain:
+- Puños/Empuñaduras → Manșoane (handlebar grips), NOT 'Mânere'
+- Cubiertas → Anvelope (tires)
+- Cámaras de aire → Camere de aer (inner tubes)
+- Ruedas → Roți (wheels)
+- Llantas → Jante (rims)
+- Frenos → Frâne (brakes)
+- Pastillas de freno → Plăcuțe de frână (brake pads)
+- Guardabarros → Apărători de noroi (fenders/mudguards)
+- Manillar → Ghidon (handlebar)
+- Horquilla → Furcă (fork)
+- Amortiguador → Amortizor (shock absorber)
+- Caballete/Pata de cabra → Cric/Picior sprijin (kickstand)
+- Timbre → Sonerie (bell)
+- Candado → Lacăt (lock)
+- Cargador → Încărcător (charger)
+- Batería → Baterie/Acumulator (battery)
+- Controladora → Controler (controller)
+- Neumático → Anvelopă (tire/tyre)
+- Patinete eléctrico → Trotinetă electrică (electric scooter)
+- Bicicleta eléctrica → Bicicletă electrică (electric bike)
+- Repuesto → Piesă de schimb (spare part)
+- Accesorios → Accesorii (accessories)
+- Recambio → Piesă de schimb (replacement part)
+
 ROMANIAN GRAMMAR RULES:
 - Use proper Romanian diacritics: ă, â, î, ș, ț (NEVER use ş or ţ with cedilla, NEVER substitute with a, i, s, t)
 - Apply correct noun-adjective agreement (adjective follows noun, agrees in gender/number/case)
@@ -384,7 +436,7 @@ ROMANIAN GRAMMAR RULES:
 - Keep technical terms, brand names, model numbers, and measurements untranslated
 - Do NOT translate pure numbers — return them as-is
 - Capitalize only the first word and proper nouns (Romanian does not use Title Case for common nouns)
-- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fara' (without), 'din' (from/of)
+- Use correct prepositions: 'pentru' (for), 'cu' (with), 'fără' (without), 'din' (from/of)
 - Product names: use natural Romanian word order (noun + adjective)
 - For measurements, use Romanian conventions (km/h, kg, cm)
 

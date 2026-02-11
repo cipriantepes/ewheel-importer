@@ -1,5 +1,17 @@
 = Changelog =
 
+2.3.2 – 2026-02-11
+Add – Image alt text and title set from product name during import (SEO improvement).
+Add – Existing images backfill alt text on next sync if missing (no re-download needed).
+Dev – New ImageServiceTest with 5 tests for metadata handling.
+
+2.3.1 – 2026-02-11
+Add – Family/subfamily now created as WooCommerce product categories (parent-child hierarchy).
+Add – Catalogs now created as WooCommerce product tags.
+Fix – Translation prompts now include scooter/bike domain glossary (23 terms) for correct Romanian terminology.
+Tweak – Pipe data family/subfamily takes precedence; API attributes are fallback.
+Dev – 4 new tests for taxonomy field extraction (203 tests total).
+
 2.3.0 – 2026-02-11
 Fix – Family, subfamily, and catalogs no longer created as product attributes or used for variations.
 Tweak – familia-sage, subfamilia-sage, subfamilia, catalogos moved from hidden attributes to meta storage.

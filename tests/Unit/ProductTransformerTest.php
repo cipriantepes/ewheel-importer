@@ -361,6 +361,117 @@ class ProductTransformerTest extends TestCase {
     }
 
     /**
+     * Test extract_pipe_attributes returns family and subfamily top-level keys.
+     */
+    public function test_pipe_attributes_extract_family_subfamily(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
+
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
+
+        // Build pipe-separated description with family at position 41, subfamily at 42
+        $parts    = array_fill( 0, 43, '' );
+        $parts[0] = '1234567890123'; // EAN
+        $parts[7] = 'BrandX';        // Brand
+        $parts[41] = 'Ruedas';       // Family
+        $parts[42] = 'Neumaticos';   // Subfamily
+
+        $product = ProductFixtures::simple_ewheel_product( [
+            'Description' => [ 'en' => implode( '|', $parts ) ],
+        ] );
+
+        $result = $transformer->extract_pipe_attributes( $product );
+
+        $this->assertEquals( 'Ruedas', $result['family'] );
+        $this->assertEquals( 'Neumaticos', $result['subfamily'] );
+        // Also stored in meta for backward compatibility
+        $this->assertEquals( 'Ruedas', $result['meta']['familia-sage'] );
+        $this->assertEquals( 'Neumaticos', $result['meta']['subfamilia-sage'] );
+    }
+
+    /**
+     * Test extract_taxonomy_fields extracts family/subfamily/catalogs from API attributes.
+     */
+    public function test_extract_taxonomy_fields_from_attributes(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration();
+
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
+
+        $attributes = [
+            [ 'alias' => 'familia-sage', 'value' => 'Ruedas' ],
+            [ 'alias' => 'subfamilia-sage', 'value' => 'Neumaticos' ],
+            [ 'alias' => 'catalogos', 'value' => 'Catalogo General,Catalogo 2025' ],
+            [ 'alias' => 'color', 'value' => 'Negro' ],
+        ];
+
+        $result = $transformer->extract_taxonomy_fields( $attributes );
+
+        $this->assertEquals( 'Ruedas', $result['family'] );
+        $this->assertEquals( 'Neumaticos', $result['subfamily'] );
+        $this->assertEquals( 'Catalogo General,Catalogo 2025', $result['catalogs'] );
+    }
+
+    /**
+     * Test transform passes _family, _subfamily, _catalog_tags in output.
+     */
+    public function test_transform_passes_taxonomy_fields(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false ); // Simple mode
+
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
+
+        $product = ProductFixtures::single_variant_product_with_garbage_attrs( [
+            'Attributes' => [
+                [ 'alias' => 'familia-sage', 'value' => 'Accesorios' ],
+                [ 'alias' => 'subfamilia-sage', 'value' => 'Proteccion' ],
+                [ 'alias' => 'catalogos', 'value' => 'Catálogo 2025' ],
+            ],
+        ] );
+
+        $result = $transformer->transform( $product );
+
+        $this->assertCount( 1, $result );
+        $this->assertEquals( 'Accesorios', $result[0]['_family'] );
+        $this->assertEquals( 'Proteccion', $result[0]['_subfamily'] );
+        $this->assertEquals( 'Catálogo 2025', $result[0]['_catalog_tags'] );
+    }
+
+    /**
+     * Test pipe data family takes precedence over API attribute family.
+     */
+    public function test_pipe_family_takes_precedence_over_api_attribute(): void {
+        $translator        = MockFactory::translator();
+        $pricing_converter = MockFactory::pricing_converter();
+        $config            = MockFactory::configuration( false );
+
+        $transformer = new ProductTransformer( $translator, $pricing_converter, $config );
+
+        // Build pipe-separated description with family at position 41
+        $parts    = array_fill( 0, 43, '' );
+        $parts[41] = 'PipeFamily';
+        $parts[42] = 'PipeSubfamily';
+
+        $product = ProductFixtures::single_variant_product_with_garbage_attrs( [
+            'Description' => [ 'en' => implode( '|', $parts ) ],
+            'Attributes'  => [
+                [ 'alias' => 'familia-sage', 'value' => 'ApiFamily' ],
+                [ 'alias' => 'subfamilia-sage', 'value' => 'ApiSubfamily' ],
+            ],
+        ] );
+
+        $result = $transformer->transform( $product );
+
+        $this->assertCount( 1, $result );
+        // Pipe data should take precedence (set first, API is fallback)
+        $this->assertEquals( 'PipeFamily', $result[0]['_family'] );
+        $this->assertEquals( 'PipeSubfamily', $result[0]['_subfamily'] );
+    }
+
+    /**
      * Helper to check if string contains substring.
      *
      * @param string $needle   The substring to search for.

@@ -892,6 +892,16 @@ class WooCommerceSync
             $this->model_service->assign_models_to_product($product_id, $data['_models']);
         }
 
+        // Assign family/subfamily as product categories
+        if (!empty($data['_family']) || !empty($data['_subfamily'])) {
+            $this->assign_family_categories($product_id, $data['_family'] ?? '', $data['_subfamily'] ?? '');
+        }
+
+        // Assign catalog tags
+        if (!empty($data['_catalog_tags'])) {
+            $this->assign_catalog_tags($product_id, $data['_catalog_tags']);
+        }
+
         // Handle variations for variable products
         if ($product_type === 'variable' && !empty($data['variations'])) {
             $this->variation_service->create_variations($product_id, $data['variations'], $data['attributes'] ?? []);
@@ -929,6 +939,16 @@ class WooCommerceSync
         // Assign compatible model taxonomy terms (update on sync)
         if (!empty($data['_models'])) {
             $this->model_service->assign_models_to_product($product_id, $data['_models']);
+        }
+
+        // Assign family/subfamily as product categories (update on sync)
+        if (!empty($data['_family']) || !empty($data['_subfamily'])) {
+            $this->assign_family_categories($product_id, $data['_family'] ?? '', $data['_subfamily'] ?? '');
+        }
+
+        // Assign catalog tags (update on sync)
+        if (!empty($data['_catalog_tags'])) {
+            $this->assign_catalog_tags($product_id, $data['_catalog_tags']);
         }
 
         // Update variations for variable products
@@ -1187,8 +1207,11 @@ class WooCommerceSync
                 continue;
             }
 
-            // Use ImageService to import
-            $attachment_id = $this->image_service->import_from_url($url);
+            // Use ImageService to import (with SEO metadata)
+            $attachment_id = $this->image_service->import_from_url($url, [
+                'alt_text' => $product->get_name(),
+                'title'    => $product->get_name(),
+            ]);
 
             if ($attachment_id) {
                 $image_ids[] = $attachment_id;
@@ -1208,6 +1231,175 @@ class WooCommerceSync
 
 
 
+
+    /**
+     * Assign family and subfamily as WooCommerce product categories.
+     *
+     * Family becomes a top-level product_cat, subfamily becomes a child of family.
+     * Appends to existing categories (preserves API-sourced categories).
+     *
+     * @param int    $product_id The product ID.
+     * @param string $family     The family name (Spanish).
+     * @param string $subfamily  The subfamily name (Spanish).
+     */
+    private function assign_family_categories(int $product_id, string $family, string $subfamily): void
+    {
+        $term_ids = [];
+        $family_term_id = null;
+
+        if (!empty($family)) {
+            $translated = $this->translator->translate($family, 'es');
+            $family_name = !empty($translated) ? $translated : $family;
+
+            $family_term_id = $this->find_or_create_family_cat($family_name, 0, $family);
+            if ($family_term_id) {
+                $term_ids[] = $family_term_id;
+            }
+        }
+
+        if (!empty($subfamily)) {
+            $translated = $this->translator->translate($subfamily, 'es');
+            $subfamily_name = !empty($translated) ? $translated : $subfamily;
+
+            $parent_id = $family_term_id ?: 0;
+            $subfamily_term_id = $this->find_or_create_family_cat($subfamily_name, $parent_id, $subfamily);
+            if ($subfamily_term_id) {
+                $term_ids[] = $subfamily_term_id;
+            }
+        }
+
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, 'product_cat', true);
+        }
+    }
+
+    /**
+     * Find or create a product_cat term for family/subfamily.
+     *
+     * Lookup order:
+     * 1. By `_ewheel_family_source` meta + matching parent
+     * 2. By name + matching parent
+     * 3. Create new
+     *
+     * @param string $name      The translated category name.
+     * @param int    $parent_id The parent term ID (0 for top-level).
+     * @param string $source    The original Spanish source name (for meta tracking).
+     * @return int|null Term ID or null on failure.
+     */
+    private function find_or_create_family_cat(string $name, int $parent_id, string $source): ?int
+    {
+        $name = trim($name);
+        if (empty($name)) {
+            return null;
+        }
+
+        // 1. Lookup by ewheel source meta
+        $terms = get_terms([
+            'taxonomy'   => 'product_cat',
+            'hide_empty' => false,
+            'meta_query' => [
+                ['key' => '_ewheel_family_source', 'value' => $source],
+            ],
+        ]);
+
+        if (!empty($terms) && !is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $t = ($term instanceof \WP_Term) ? $term : get_term($term);
+                if ($t && (int) $t->parent === $parent_id) {
+                    return $t->term_id;
+                }
+            }
+        }
+
+        // 2. Lookup by name + parent
+        $slug = sanitize_title($name);
+        $existing = get_terms([
+            'taxonomy'   => 'product_cat',
+            'hide_empty' => false,
+            'slug'       => $slug,
+            'parent'     => $parent_id,
+        ]);
+
+        if (!empty($existing) && !is_wp_error($existing)) {
+            $term = $existing[0];
+            $term_id = ($term instanceof \WP_Term) ? $term->term_id : (int) $term;
+            add_term_meta($term_id, '_ewheel_family_source', $source, true);
+            return $term_id;
+        }
+
+        // 3. Create new
+        $result = wp_insert_term($name, 'product_cat', [
+            'parent' => $parent_id,
+        ]);
+
+        if (is_wp_error($result)) {
+            if ($result->get_error_code() === 'term_exists') {
+                $existing_id = (int) $result->get_error_data();
+                add_term_meta($existing_id, '_ewheel_family_source', $source, true);
+                return $existing_id;
+            }
+            error_log('[Ewheel Family] Failed to create category "' . $name . '": ' . $result->get_error_message());
+            return null;
+        }
+
+        $term_id = $result['term_id'];
+        add_term_meta($term_id, '_ewheel_family_source', $source, true);
+
+        return $term_id;
+    }
+
+    /**
+     * Assign catalog names as WooCommerce product tags.
+     *
+     * Catalogs may be comma-separated. Each is translated and created/found
+     * as a product_tag term. Appends to existing tags.
+     *
+     * @param int    $product_id The product ID.
+     * @param string $catalogs   Catalog name(s), possibly comma-separated.
+     */
+    private function assign_catalog_tags(int $product_id, string $catalogs): void
+    {
+        $tag_names = array_map('trim', explode(',', $catalogs));
+        $tag_names = array_filter($tag_names);
+
+        if (empty($tag_names)) {
+            return;
+        }
+
+        $term_ids = [];
+        foreach ($tag_names as $tag_name) {
+            $translated = $this->translator->translate($tag_name, 'es');
+            $name = !empty($translated) ? $translated : $tag_name;
+
+            $term = get_term_by('name', $name, 'product_tag');
+            if ($term instanceof \WP_Term) {
+                $term_ids[] = $term->term_id;
+                continue;
+            }
+
+            // Also check by slug
+            $slug = sanitize_title($name);
+            $term = get_term_by('slug', $slug, 'product_tag');
+            if ($term instanceof \WP_Term) {
+                $term_ids[] = $term->term_id;
+                continue;
+            }
+
+            $result = wp_insert_term($name, 'product_tag');
+            if (is_wp_error($result)) {
+                if ($result->get_error_code() === 'term_exists') {
+                    $term_ids[] = (int) $result->get_error_data();
+                }
+                continue;
+            }
+
+            $term_ids[] = $result['term_id'];
+        }
+
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, 'product_tag', true);
+        }
+    }
 
     /**
      * Get the last sync timestamp.

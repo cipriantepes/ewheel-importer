@@ -155,9 +155,12 @@ class VariationService
             $variation->set_height($data['height']);
         }
 
-        // Image
+        // Image (with SEO metadata)
         if (!empty($data['image'])) {
-            $image_id = $this->image_service->import_from_url($data['image']);
+            $image_id = $this->image_service->import_from_url($data['image'], [
+                'alt_text' => $variation->get_name(),
+                'title'    => $variation->get_name(),
+            ]);
             if ($image_id) {
                 $variation->set_image_id($image_id);
             }
