@@ -1,5 +1,10 @@
 = Changelog =
 
+2.2.5 – 2026-02-11
+Fix – Single-variant products now created as simple (SKU, GTIN populated correctly).
+Fix – Barcode extraction from variant attributes (codigo-alternativo EAN/UPC).
+Dev – Removed debug logging from ProductTransformer.
+
 2.2.4 – 2026-02-10
 Add – Auto-detect product type: products with variants → variable, without → simple.
 Tweak – Product Type Mode default changed to "Auto-detect".

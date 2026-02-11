@@ -89,16 +89,16 @@ class ProductTransformer
             $ref = $p['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
             PersistentLogger::info("ProductTransformer::transform - reference: {$ref}");
 
-            // DEBUG: Log all API keys for first product to discover available fields
-            static $debug_logged = false;
-            if (!$debug_logged) {
-                PersistentLogger::info("[DEBUG] API product keys: " . implode(', ', array_keys($ewheel_product)));
-                PersistentLogger::info("[DEBUG] API product (truncated): " . substr(wp_json_encode($ewheel_product), 0, 2000));
-                $debug_logged = true;
-            }
+            $variants = $p['variants'] ?? [];
+            $variant_count = count($variants);
+            $has_variants = $variant_count > 0;
 
-            $has_variants = !empty($p['variants']);
-            $use_variable_mode = $this->config->is_variable_product_mode($has_variants);
+            // For auto-detect mode: the ewheel API wraps ALL products in a
+            // parent + variant structure.  Products with only 1 variant are
+            // effectively simple products.  Only treat as truly "variable"
+            // when multiple variants exist.
+            $has_meaningful_variants = $variant_count > 1;
+            $use_variable_mode = $this->config->is_variable_product_mode($has_meaningful_variants);
 
             $mode = $has_variants ? ($use_variable_mode ? 'variable' : 'simple-expanded') : 'simple';
             PersistentLogger::info("Transform mode: {$mode}");
@@ -493,7 +493,7 @@ class ProductTransformer
                 $parent_attrs = $this->transform_attributes_with_visibility(is_array($attrs_val) ? $attrs_val : []);
             }
 
-            // Extract EAN/UPC from API attributes (supplement pipe data)
+            // Extract EAN/UPC from parent API attributes (supplement pipe data)
             if (is_array($attrs_val)) {
                 $barcode_data = $this->extract_barcode_from_attributes($attrs_val);
                 if (!empty($barcode_data['ean']) && empty($woo_product['_gtin'])) {
@@ -507,6 +507,25 @@ class ProductTransformer
                     $woo_product['meta_data'][] = [
                         'key' => '_ewheel_upc',
                         'value' => $barcode_data['upc'],
+                    ];
+                }
+            }
+
+            // Extract EAN/UPC from variant attributes (codigo-alternativo lives on variants)
+            $variant_raw_attrs = $v['attributes'] ?? ($variant['Attributes'] ?? []);
+            if (is_array($variant_raw_attrs) && !empty($variant_raw_attrs)) {
+                $variant_barcode = $this->extract_barcode_from_attributes($variant_raw_attrs);
+                if (!empty($variant_barcode['ean']) && empty($woo_product['_gtin'])) {
+                    $woo_product['_gtin'] = $variant_barcode['ean'];
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_ean',
+                        'value' => $variant_barcode['ean'],
+                    ];
+                }
+                if (!empty($variant_barcode['upc']) && !$this->has_meta_key($woo_product, '_ewheel_upc')) {
+                    $woo_product['meta_data'][] = [
+                        'key' => '_ewheel_upc',
+                        'value' => $variant_barcode['upc'],
                     ];
                 }
             }
