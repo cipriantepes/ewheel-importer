@@ -89,6 +89,14 @@ class ProductTransformer
             $ref = $p['reference'] ?? ($ewheel_product['Reference'] ?? 'unknown');
             PersistentLogger::info("ProductTransformer::transform - reference: {$ref}");
 
+            // DEBUG: Log all API keys for first product to discover available fields
+            static $debug_logged = false;
+            if (!$debug_logged) {
+                PersistentLogger::info("[DEBUG] API product keys: " . implode(', ', array_keys($ewheel_product)));
+                PersistentLogger::info("[DEBUG] API product (truncated): " . substr(wp_json_encode($ewheel_product), 0, 2000));
+                $debug_logged = true;
+            }
+
             $has_variants = !empty($p['variants']);
             $use_variable_mode = $this->config->is_variable_product_mode($has_variants);
 
