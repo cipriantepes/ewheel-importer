@@ -141,12 +141,14 @@ class ServiceFactory
             PricingConverter::class,
             function (ServiceContainer $c) {
                 $config = $c->get(Configuration::class);
-                return new PricingConverter(
+                $converter = new PricingConverter(
                     $c->get(ExchangeRateProviderInterface::class),
                     'EUR',
                     'RON',
                     $config->get_markup_percent()
                 );
+                $converter->set_rounding_mode($config->get_price_rounding());
+                return $converter;
             }
         );
 

@@ -1,5 +1,10 @@
 = Changelog =
 
+2.2.9 – 2026-02-11
+Add – Price rounding setting: none, round up to integer, .99 ending, nearest 5, nearest 10.
+Add – Price Rounding dropdown in Pricing Settings section.
+Dev – 11 new tests for rounding modes (199 tests total).
+
 2.2.8 – 2026-02-11
 Add – Shipping dimensions (weight, height, width, length) extracted from variant attributes.
 Fix – Simple-expanded products now populate WooCommerce shipping fields from variant-level peso/alto/ancho/largo.

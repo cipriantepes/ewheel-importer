@@ -339,6 +339,32 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                                 <span>%</span>
                             </td>
                         </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="ewheel_importer_price_rounding">
+                                    <?php esc_html_e('Price Rounding', 'ewheel-importer'); ?>
+                                </label>
+                            </th>
+                            <td>
+                                <select id="ewheel_importer_price_rounding" name="ewheel_importer_price_rounding">
+                                    <option value="none" <?php selected($settings['price_rounding'] ?? 'none', 'none'); ?>>
+                                        <?php esc_html_e('No rounding', 'ewheel-importer'); ?>
+                                    </option>
+                                    <option value="ceil" <?php selected($settings['price_rounding'] ?? 'none', 'ceil'); ?>>
+                                        <?php esc_html_e('Round up to integer (596.40 → 597)', 'ewheel-importer'); ?>
+                                    </option>
+                                    <option value="99" <?php selected($settings['price_rounding'] ?? 'none', '99'); ?>>
+                                        <?php esc_html_e('.99 ending (596.40 → 596.99)', 'ewheel-importer'); ?>
+                                    </option>
+                                    <option value="nearest5" <?php selected($settings['price_rounding'] ?? 'none', 'nearest5'); ?>>
+                                        <?php esc_html_e('Nearest 5 (596.40 → 600)', 'ewheel-importer'); ?>
+                                    </option>
+                                    <option value="nearest10" <?php selected($settings['price_rounding'] ?? 'none', 'nearest10'); ?>>
+                                        <?php esc_html_e('Nearest 10 (596.40 → 600)', 'ewheel-importer'); ?>
+                                    </option>
+                                </select>
+                            </td>
+                        </tr>
                     </table>
 
                     <h2><?php esc_html_e('Sync Settings', 'ewheel-importer'); ?></h2>

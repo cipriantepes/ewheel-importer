@@ -181,6 +181,139 @@ class PricingConverterTest extends TestCase {
     }
 
     /**
+     * Test rounding mode: ceil.
+     */
+    public function test_rounding_ceil(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'ceil' );
+
+        // 119.28 EUR * 5.00 = 596.40 → ceil → 597
+        $this->assertEquals( 597.0, $converter->convert( 119.28 ) );
+    }
+
+    /**
+     * Test rounding mode: ceil with exact integer stays the same.
+     */
+    public function test_rounding_ceil_exact_integer(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'ceil' );
+
+        // 100.00 * 5.00 = 500.00 → ceil → 500
+        $this->assertEquals( 500.0, $converter->convert( 100.00 ) );
+    }
+
+    /**
+     * Test rounding mode: .99 ending.
+     */
+    public function test_rounding_99(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( '99' );
+
+        // 119.28 * 5.00 = 596.40 → 596.99
+        $this->assertEquals( 596.99, $converter->convert( 119.28 ) );
+    }
+
+    /**
+     * Test rounding mode: .99 ending with exact integer.
+     */
+    public function test_rounding_99_exact_integer(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( '99' );
+
+        // 100.00 * 5.00 = 500.00 → 500.99
+        $this->assertEquals( 500.99, $converter->convert( 100.00 ) );
+    }
+
+    /**
+     * Test rounding mode: nearest 5.
+     */
+    public function test_rounding_nearest5(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'nearest5' );
+
+        // 119.28 * 5.00 = 596.40 → 600
+        $this->assertEquals( 600.0, $converter->convert( 119.28 ) );
+    }
+
+    /**
+     * Test rounding mode: nearest 5 with exact multiple.
+     */
+    public function test_rounding_nearest5_exact(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'nearest5' );
+
+        // 100.00 * 5.00 = 500.00 → 500 (already a multiple of 5)
+        $this->assertEquals( 500.0, $converter->convert( 100.00 ) );
+    }
+
+    /**
+     * Test rounding mode: nearest 10.
+     */
+    public function test_rounding_nearest10(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'nearest10' );
+
+        // 119.28 * 5.00 = 596.40 → 600
+        $this->assertEquals( 600.0, $converter->convert( 119.28 ) );
+    }
+
+    /**
+     * Test rounding mode: nearest 10 rounds up from 501.
+     */
+    public function test_rounding_nearest10_rounds_up(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'nearest10' );
+
+        // 100.20 * 5.00 = 501.00 → 510
+        $this->assertEquals( 510.0, $converter->convert( 100.20 ) );
+    }
+
+    /**
+     * Test rounding mode: none leaves price unchanged.
+     */
+    public function test_rounding_none(): void {
+        $rate_provider = $this->create_rate_provider_expecting( 5.00 );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( 'none' );
+
+        $this->assertEquals( 596.40, $converter->convert( 119.28 ) );
+    }
+
+    /**
+     * Test rounding with zero price.
+     */
+    public function test_rounding_zero_price(): void {
+        $rate_provider = Mockery::mock( ExchangeRateProviderInterface::class );
+        $rate_provider->shouldNotReceive( 'get_rate' );
+
+        $converter = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+        $converter->set_rounding_mode( '99' );
+
+        $this->assertEquals( 0.0, $converter->convert( 0.0 ) );
+    }
+
+    /**
+     * Test get_rounding_mode returns set mode.
+     */
+    public function test_get_rounding_mode(): void {
+        $rate_provider = Mockery::mock( ExchangeRateProviderInterface::class );
+        $converter     = new PricingConverter( $rate_provider, 'EUR', 'RON', 0 );
+
+        $this->assertEquals( 'none', $converter->get_rounding_mode() );
+
+        $converter->set_rounding_mode( '99' );
+        $this->assertEquals( '99', $converter->get_rounding_mode() );
+    }
+
+    /**
      * Test handles exchange rate provider error.
      */
     public function test_handles_exchange_rate_error(): void {

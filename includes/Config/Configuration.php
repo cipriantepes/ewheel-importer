@@ -85,6 +85,7 @@ class Configuration
         'openrouter_model' => 'google/gemini-2.0-flash:free',
         'variation_mode' => self::VARIATION_MODE_AUTO, // 'auto', 'variable', or 'simple'
         'notify_on_sync' => true,
+        'price_rounding' => 'none', // 'none', 'ceil', '99', 'nearest5', 'nearest10'
     ];
 
     /**
@@ -189,6 +190,16 @@ class Configuration
     public function get_markup_percent(): float
     {
         return (float) $this->get('markup_percent');
+    }
+
+    /**
+     * Get price rounding mode.
+     *
+     * @return string One of: none, ceil, 99, nearest5, nearest10.
+     */
+    public function get_price_rounding(): string
+    {
+        return (string) $this->get('price_rounding');
     }
 
     /**

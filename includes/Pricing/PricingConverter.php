@@ -41,6 +41,13 @@ class PricingConverter {
     private float $markup_percentage;
 
     /**
+     * Price rounding mode.
+     *
+     * @var string
+     */
+    private string $rounding_mode = 'none';
+
+    /**
      * Cached exchange rate.
      *
      * @var float|null
@@ -95,7 +102,10 @@ class PricingConverter {
         }
 
         // Round to 2 decimal places
-        return round( $converted, 2 );
+        $converted = round( $converted, 2 );
+
+        // Apply price rounding
+        return $this->apply_rounding( $converted );
     }
 
     /**
@@ -134,6 +144,47 @@ class PricingConverter {
      */
     public function get_markup_percentage(): float {
         return $this->markup_percentage;
+    }
+
+    /**
+     * Set the price rounding mode.
+     *
+     * @param string $mode One of: none, ceil, 99, nearest5, nearest10.
+     * @return void
+     */
+    public function set_rounding_mode( string $mode ): void {
+        $this->rounding_mode = $mode;
+    }
+
+    /**
+     * Get the current rounding mode.
+     *
+     * @return string The rounding mode.
+     */
+    public function get_rounding_mode(): string {
+        return $this->rounding_mode;
+    }
+
+    /**
+     * Apply rounding to a converted price.
+     *
+     * @param float $price The price after conversion and markup.
+     * @return float The rounded price.
+     */
+    private function apply_rounding( float $price ): float {
+        switch ( $this->rounding_mode ) {
+            case 'ceil':
+                return (float) ceil( $price );
+            case '99':
+                return floor( $price ) + 0.99;
+            case 'nearest5':
+                return (float) ( ceil( $price / 5 ) * 5 );
+            case 'nearest10':
+                return (float) ( ceil( $price / 10 ) * 10 );
+            case 'none':
+            default:
+                return $price;
+        }
     }
 
     /**
