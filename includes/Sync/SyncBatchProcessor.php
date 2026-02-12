@@ -169,6 +169,18 @@ class SyncBatchProcessor
 
             // Check status for limit and adaptive batch size
             $status = get_option($this->get_status_key($profile_id), []);
+
+            // Verify this batch belongs to the current sync session
+            if (!isset($status['id']) || $status['id'] !== $sync_id) {
+                PersistentLogger::info(
+                    sprintf('Stale batch ignored (batch sync_id: %s, current: %s). Skipping.', $sync_id, $status['id'] ?? 'none'),
+                    null,
+                    $sync_id,
+                    $profile_id
+                );
+                return;
+            }
+
             $limit = isset($status['limit']) ? (int) $status['limit'] : 0;
             $processed = isset($status['processed']) ? (int) $status['processed'] : 0;
             $batch_size = isset($status['batch_size']) ? (int) $status['batch_size'] : self::DEFAULT_BATCH_SIZE;

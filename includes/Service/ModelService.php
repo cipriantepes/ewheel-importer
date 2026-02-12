@@ -22,7 +22,12 @@ class ModelService
     public const TAXONOMY = 'product_model';
 
     /**
-     * Known model ID → scooter name mapping.
+     * WP option key for model name mappings.
+     */
+    public const OPTION_KEY = 'ewheel_importer_model_names';
+
+    /**
+     * Default model ID → scooter name mapping (seed data).
      * Scraped from ewheel.es product catalog (single-model products only).
      */
     public const MODEL_NAMES = [
@@ -113,6 +118,94 @@ class ModelService
     ];
 
     /**
+     * Get all model ID => name mappings.
+     *
+     * Reads from the WP option, falling back to the hardcoded constant.
+     * Option values take precedence over constant values.
+     *
+     * @return array<string, string> Model ID => scooter name pairs.
+     */
+    public function get_model_names(): array
+    {
+        $from_option = get_option(self::OPTION_KEY, []);
+
+        if (!is_array($from_option) || empty($from_option)) {
+            return self::MODEL_NAMES;
+        }
+
+        // Option takes precedence; constant fills any gaps
+        return $from_option + self::MODEL_NAMES;
+    }
+
+    /**
+     * Save a single model ID => name mapping to the WP option.
+     *
+     * @param string $model_id The ewheel model ID.
+     * @param string $name     The scooter name.
+     * @return bool Success.
+     */
+    public function save_model_name(string $model_id, string $name): bool
+    {
+        $model_id = trim($model_id);
+        $name = trim($name);
+
+        if (empty($model_id) || empty($name)) {
+            return false;
+        }
+
+        $mappings = get_option(self::OPTION_KEY, []);
+        if (!is_array($mappings)) {
+            $mappings = [];
+        }
+
+        $mappings[$model_id] = $name;
+
+        return update_option(self::OPTION_KEY, $mappings);
+    }
+
+    /**
+     * Remove a model ID => name mapping from the WP option.
+     *
+     * After removal, the model falls back to the constant or to the numeric ID.
+     *
+     * @param string $model_id The ewheel model ID.
+     * @return bool Success.
+     */
+    public function remove_model_name(string $model_id): bool
+    {
+        $model_id = trim($model_id);
+
+        $mappings = get_option(self::OPTION_KEY, []);
+        if (!is_array($mappings) || !isset($mappings[$model_id])) {
+            return false;
+        }
+
+        unset($mappings[$model_id]);
+
+        return update_option(self::OPTION_KEY, $mappings);
+    }
+
+    /**
+     * Seed the WP option from the MODEL_NAMES constant.
+     *
+     * Only populates the option if it does not already exist.
+     * This is a one-time migration on activation/upgrade.
+     *
+     * @return void
+     */
+    public function seed_default_names(): void
+    {
+        $existing = get_option(self::OPTION_KEY, null);
+
+        // Only seed if the option has never been set
+        if ($existing !== null) {
+            return;
+        }
+
+        update_option(self::OPTION_KEY, self::MODEL_NAMES);
+    }
+
+    /**
      * Get or create a model term by ewheel model ID.
      *
      * @param string $model_id The ewheel model ID (e.g., "110").
@@ -150,7 +243,8 @@ class ModelService
         }
 
         // Create new model term — use known name if available, otherwise numeric ID
-        $term_name = self::MODEL_NAMES[$model_id] ?? $model_id;
+        $model_names = $this->get_model_names();
+        $term_name = $model_names[$model_id] ?? $model_id;
         $result = wp_insert_term($term_name, self::TAXONOMY, [
             'slug' => sanitize_title($model_id),
         ]);

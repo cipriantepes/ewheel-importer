@@ -215,6 +215,11 @@ class SyncLauncher
             );
         }
 
+        // Clear any stale batch jobs from previous syncs
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('ewheel_importer_process_batch');
+        }
+
         // Initialize sync status (minimal - just enough to track state)
         update_option(
             $this->get_status_key($profile_id),
@@ -285,6 +290,11 @@ class SyncLauncher
             } else {
                 $since = $this->config->get_last_sync();
             }
+        }
+
+        // Clear any stale batch jobs from previous syncs
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('ewheel_importer_process_batch');
         }
 
         // Initialize sync status (minimal - history record created in first batch)

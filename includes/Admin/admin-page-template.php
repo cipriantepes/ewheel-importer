@@ -33,6 +33,7 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
         <div class="ewheel-tab" data-tab="categories"><?php esc_html_e('Category Mapping', 'ewheel-importer'); ?></div>
         <div class="ewheel-tab" data-tab="history"><?php esc_html_e('Sync History', 'ewheel-importer'); ?></div>
         <div class="ewheel-tab" data-tab="logs"><?php esc_html_e('Error Logs', 'ewheel-importer'); ?></div>
+        <div class="ewheel-tab" data-tab="models"><?php esc_html_e('Models', 'ewheel-importer'); ?></div>
     </div>
 
     <!-- Settings Tab -->
@@ -1096,6 +1097,61 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
             </div>
         </div>
     </div>
+
+    <!-- Models Tab -->
+    <div class="ewheel-tab-content" id="tab-models">
+        <div class="ewheel-importer-box" style="max-width: none;">
+            <h3><?php esc_html_e('Model Mappings', 'ewheel-importer'); ?></h3>
+            <p class="description">
+                <?php esc_html_e('Map ewheel.es model IDs to scooter names. These names are used when creating product_model taxonomy terms. Changes take effect on the next sync.', 'ewheel-importer'); ?>
+            </p>
+
+            <div style="margin: 15px 0; display: flex; gap: 15px; align-items: center;">
+                <span id="ewheel-model-mapped-count" class="ewheel-status-badge completed">--</span>
+                <span id="ewheel-model-unmapped-count" class="ewheel-status-badge stopped">--</span>
+                <button type="button" id="ewheel-refresh-models" class="button button-secondary">
+                    <span class="dashicons dashicons-update" style="vertical-align: middle; margin-right: 5px;"></span>
+                    <?php esc_html_e('Refresh', 'ewheel-importer'); ?>
+                </button>
+            </div>
+
+            <!-- Add Model Form -->
+            <div style="margin: 15px 0; padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                <h4 style="margin-top: 0;"><?php esc_html_e('Add New Model Mapping', 'ewheel-importer'); ?></h4>
+                <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                    <div>
+                        <label for="ewheel-new-model-id"><strong><?php esc_html_e('Model ID', 'ewheel-importer'); ?></strong></label><br>
+                        <input type="text" id="ewheel-new-model-id" placeholder="<?php esc_attr_e('e.g. 123', 'ewheel-importer'); ?>" style="width: 120px;">
+                    </div>
+                    <div>
+                        <label for="ewheel-new-model-name"><strong><?php esc_html_e('Scooter Name', 'ewheel-importer'); ?></strong></label><br>
+                        <input type="text" id="ewheel-new-model-name" placeholder="<?php esc_attr_e('e.g. Xiaomi Mi 5 Pro', 'ewheel-importer'); ?>" style="width: 300px;">
+                    </div>
+                    <button type="button" id="ewheel-add-model" class="button button-primary">
+                        <span class="dashicons dashicons-plus-alt" style="vertical-align: middle; margin-right: 5px;"></span>
+                        <?php esc_html_e('Add Model', 'ewheel-importer'); ?>
+                    </button>
+                    <span id="ewheel-add-model-status"></span>
+                </div>
+            </div>
+
+            <!-- Search/Filter -->
+            <div style="margin: 10px 0;">
+                <input type="text" id="ewheel-model-search" placeholder="<?php esc_attr_e('Filter by ID or name...', 'ewheel-importer'); ?>" style="width: 300px;">
+                <label style="margin-left: 15px;">
+                    <input type="checkbox" id="ewheel-show-unmapped-only">
+                    <?php esc_html_e('Show unmapped only', 'ewheel-importer'); ?>
+                </label>
+            </div>
+
+            <div id="ewheel-model-mapping-container">
+                <div class="ewheel-empty-state">
+                    <span class="dashicons dashicons-admin-generic"></span>
+                    <p><?php esc_html_e('Switch to this tab to load model mappings.', 'ewheel-importer'); ?></p>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -1116,6 +1172,11 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
             // Load category mappings when switching to categories tab
             if (tab === 'categories') {
                 loadCategoryMappings();
+            }
+
+            // Load model mappings when switching to models tab
+            if (tab === 'models') {
+                loadModelMappings();
             }
         });
 
@@ -2367,5 +2428,260 @@ $is_paused = !empty($current_status['status']) && $current_status['status'] === 
                 }
             });
         });
+        // ==========================================
+        // Model Mapping
+        // ==========================================
+        var modelMappingsLoaded = false;
+
+        function loadModelMappings(forceReload) {
+            if (modelMappingsLoaded && !forceReload) {
+                return;
+            }
+
+            $('#ewheel-model-mapping-container').html(
+                '<div class="ewheel-empty-state"><span class="ewheel-loading"></span> <?php esc_html_e('Loading model mappings...', 'ewheel-importer'); ?></div>'
+            );
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'ewheel_get_model_mappings',
+                    nonce: ewheelImporter.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        renderModelMappings(response.data);
+                        modelMappingsLoaded = true;
+                    } else {
+                        $('#ewheel-model-mapping-container').html(
+                            '<div class="notice notice-error"><p>' + escapeHtml(response.data?.message || '<?php esc_html_e('Unknown error', 'ewheel-importer'); ?>') + '</p></div>'
+                        );
+                    }
+                },
+                error: function () {
+                    $('#ewheel-model-mapping-container').html(
+                        '<div class="notice notice-error"><p><?php esc_html_e('Failed to load model mappings. Please try again.', 'ewheel-importer'); ?></p></div>'
+                    );
+                }
+            });
+        }
+
+        function renderModelMappings(data) {
+            var mappings = data.mappings || {};
+            var fromOption = data.from_option || {};
+            var fromConstant = data.from_constant || {};
+            var unmappedIds = data.unmapped_ids || {};
+
+            $('#ewheel-model-mapped-count').text(data.mapped_count + ' <?php esc_html_e('mapped', 'ewheel-importer'); ?>');
+            $('#ewheel-model-unmapped-count').text(data.unmapped_count + ' <?php esc_html_e('unmapped', 'ewheel-importer'); ?>');
+
+            var allEntries = [];
+
+            // Add all mapped entries
+            Object.keys(mappings).sort(function (a, b) {
+                return parseInt(a) - parseInt(b);
+            }).forEach(function (modelId) {
+                var source = 'constant';
+                if (fromOption.hasOwnProperty(modelId)) {
+                    source = (fromConstant.hasOwnProperty(modelId) && fromConstant[modelId] === fromOption[modelId])
+                        ? 'seeded' : 'custom';
+                }
+                allEntries.push({ id: modelId, name: mappings[modelId], source: source, mapped: true });
+            });
+
+            // Add unmapped IDs (seen as taxonomy terms but not in the name map)
+            Object.keys(unmappedIds).sort(function (a, b) {
+                return parseInt(a) - parseInt(b);
+            }).forEach(function (modelId) {
+                if (!mappings.hasOwnProperty(modelId)) {
+                    allEntries.push({ id: modelId, name: unmappedIds[modelId], source: 'unmapped', mapped: false });
+                }
+            });
+
+            if (allEntries.length === 0) {
+                $('#ewheel-model-mapping-container').html(
+                    '<div class="ewheel-empty-state"><span class="dashicons dashicons-admin-generic"></span>' +
+                    '<p><?php esc_html_e('No model data found. Run a sync first to populate model terms.', 'ewheel-importer'); ?></p></div>'
+                );
+                return;
+            }
+
+            var html = '<table class="widefat striped"><thead><tr>' +
+                '<th style="width: 100px;"><?php esc_html_e('Model ID', 'ewheel-importer'); ?></th>' +
+                '<th><?php esc_html_e('Scooter Name', 'ewheel-importer'); ?></th>' +
+                '<th style="width: 100px;"><?php esc_html_e('Source', 'ewheel-importer'); ?></th>' +
+                '<th style="width: 150px;"><?php esc_html_e('Actions', 'ewheel-importer'); ?></th>' +
+                '</tr></thead><tbody>';
+
+            allEntries.forEach(function (entry) {
+                var sourceBadge = '';
+                if (entry.source === 'custom') {
+                    sourceBadge = '<span class="ewheel-status-badge completed"><?php esc_html_e('Custom', 'ewheel-importer'); ?></span>';
+                } else if (entry.source === 'unmapped') {
+                    sourceBadge = '<span class="ewheel-status-badge stopped"><?php esc_html_e('Unmapped', 'ewheel-importer'); ?></span>';
+                } else {
+                    sourceBadge = '<span class="ewheel-status-badge running"><?php esc_html_e('Default', 'ewheel-importer'); ?></span>';
+                }
+
+                html += '<tr class="ewheel-model-row" data-model-id="' + escapeHtml(entry.id) + '" data-mapped="' + (entry.mapped ? '1' : '0') + '">' +
+                    '<td><code>' + escapeHtml(entry.id) + '</code></td>' +
+                    '<td class="ewheel-model-name-cell">' +
+                        '<span class="ewheel-model-name-display">' + escapeHtml(entry.name) + '</span>' +
+                        '<input type="text" class="ewheel-model-name-input" value="' + escapeHtml(entry.name) + '" style="display:none; width: 100%;">' +
+                    '</td>' +
+                    '<td>' + sourceBadge + '</td>' +
+                    '<td>' +
+                        '<button type="button" class="button button-small ewheel-edit-model" title="<?php esc_attr_e('Edit', 'ewheel-importer'); ?>"><span class="dashicons dashicons-edit" style="vertical-align: middle;"></span></button> ' +
+                        '<button type="button" class="button button-small ewheel-save-model" title="<?php esc_attr_e('Save', 'ewheel-importer'); ?>" style="display:none;"><span class="dashicons dashicons-yes" style="vertical-align: middle;"></span></button> ' +
+                        '<button type="button" class="button button-small ewheel-cancel-edit-model" title="<?php esc_attr_e('Cancel', 'ewheel-importer'); ?>" style="display:none;"><span class="dashicons dashicons-no" style="vertical-align: middle;"></span></button> ' +
+                        '<button type="button" class="button button-small ewheel-delete-model" title="<?php esc_attr_e('Delete', 'ewheel-importer'); ?>"><span class="dashicons dashicons-trash" style="vertical-align: middle;"></span></button>' +
+                    '</td></tr>';
+            });
+
+            html += '</tbody></table>';
+            $('#ewheel-model-mapping-container').html(html);
+            bindModelEvents();
+            applyModelFilters();
+        }
+
+        function bindModelEvents() {
+            $('.ewheel-edit-model').off('click').on('click', function () {
+                var $row = $(this).closest('tr');
+                $row.find('.ewheel-model-name-display').hide();
+                $row.find('.ewheel-model-name-input').show().focus();
+                $row.find('.ewheel-edit-model').hide();
+                $row.find('.ewheel-save-model, .ewheel-cancel-edit-model').show();
+            });
+
+            $('.ewheel-cancel-edit-model').off('click').on('click', function () {
+                var $row = $(this).closest('tr');
+                var originalName = $row.find('.ewheel-model-name-display').text();
+                $row.find('.ewheel-model-name-input').val(originalName).hide();
+                $row.find('.ewheel-model-name-display').show();
+                $row.find('.ewheel-edit-model').show();
+                $row.find('.ewheel-save-model, .ewheel-cancel-edit-model').hide();
+            });
+
+            $('.ewheel-save-model').off('click').on('click', function () {
+                var $row = $(this).closest('tr');
+                var modelId = $row.data('model-id');
+                var newName = $row.find('.ewheel-model-name-input').val().trim();
+                if (newName) {
+                    saveModelMapping(modelId, newName, $row);
+                }
+            });
+
+            $('.ewheel-model-name-input').off('keypress').on('keypress', function (e) {
+                if (e.which === 13) {
+                    e.preventDefault();
+                    $(this).closest('tr').find('.ewheel-save-model').click();
+                }
+            });
+
+            $('.ewheel-delete-model').off('click').on('click', function () {
+                var $row = $(this).closest('tr');
+                var modelId = $row.data('model-id');
+                if (confirm('<?php esc_html_e('Remove this model mapping? It will fall back to the default name or numeric ID.', 'ewheel-importer'); ?>')) {
+                    deleteModelMapping(modelId, $row);
+                }
+            });
+        }
+
+        function saveModelMapping(modelId, name, $row) {
+            $row.find('td:last').html('<span class="ewheel-loading"></span>');
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: { action: 'ewheel_save_model_mapping', nonce: ewheelImporter.nonce, model_id: modelId, name: name },
+                success: function (response) {
+                    if (response.success) {
+                        loadModelMappings(true);
+                    } else {
+                        alert(response.data?.message || '<?php esc_html_e('Error', 'ewheel-importer'); ?>');
+                        loadModelMappings(true);
+                    }
+                },
+                error: function () {
+                    alert('<?php esc_html_e('Failed to save model mapping.', 'ewheel-importer'); ?>');
+                    loadModelMappings(true);
+                }
+            });
+        }
+
+        function deleteModelMapping(modelId, $row) {
+            $row.find('td:last').html('<span class="ewheel-loading"></span>');
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: { action: 'ewheel_delete_model_mapping', nonce: ewheelImporter.nonce, model_id: modelId },
+                success: function () { loadModelMappings(true); },
+                error: function () {
+                    alert('<?php esc_html_e('Failed to delete model mapping.', 'ewheel-importer'); ?>');
+                    loadModelMappings(true);
+                }
+            });
+        }
+
+        // Add Model Form
+        $('#ewheel-add-model').on('click', function () {
+            var modelId = $('#ewheel-new-model-id').val().trim();
+            var modelName = $('#ewheel-new-model-name').val().trim();
+            var $status = $('#ewheel-add-model-status');
+
+            if (!modelId || !modelName) {
+                $status.html('<span style="color: #721c24;"><?php esc_html_e('Both Model ID and Name are required.', 'ewheel-importer'); ?></span>');
+                return;
+            }
+
+            $status.html('<span class="ewheel-loading"></span>');
+
+            $.ajax({
+                url: ewheelImporter.ajaxUrl,
+                type: 'POST',
+                data: { action: 'ewheel_save_model_mapping', nonce: ewheelImporter.nonce, model_id: modelId, name: modelName },
+                success: function (response) {
+                    if (response.success) {
+                        $status.html('<span style="color: #155724;"><?php esc_html_e('Saved!', 'ewheel-importer'); ?></span>');
+                        $('#ewheel-new-model-id').val('');
+                        $('#ewheel-new-model-name').val('');
+                        loadModelMappings(true);
+                        setTimeout(function () { $status.html(''); }, 3000);
+                    } else {
+                        $status.html('<span style="color: #721c24;">' + escapeHtml(response.data?.message || '<?php esc_html_e('Error', 'ewheel-importer'); ?>') + '</span>');
+                    }
+                },
+                error: function () {
+                    $status.html('<span style="color: #721c24;"><?php esc_html_e('Failed to save.', 'ewheel-importer'); ?></span>');
+                }
+            });
+        });
+
+        // Refresh button
+        $('#ewheel-refresh-models').on('click', function () {
+            modelMappingsLoaded = false;
+            loadModelMappings(true);
+        });
+
+        // Search/Filter
+        $('#ewheel-model-search').on('input', applyModelFilters);
+        $('#ewheel-show-unmapped-only').on('change', applyModelFilters);
+
+        function applyModelFilters() {
+            var searchTerm = ($('#ewheel-model-search').val() || '').toLowerCase();
+            var showUnmappedOnly = $('#ewheel-show-unmapped-only').is(':checked');
+
+            $('.ewheel-model-row').each(function () {
+                var $row = $(this);
+                var modelId = ($row.data('model-id') + '').toLowerCase();
+                var modelName = $row.find('.ewheel-model-name-display').text().toLowerCase();
+                var isMapped = $row.data('mapped') === 1 || $row.data('mapped') === '1';
+
+                var matchesSearch = !searchTerm || modelId.indexOf(searchTerm) !== -1 || modelName.indexOf(searchTerm) !== -1;
+                var matchesFilter = !showUnmappedOnly || !isMapped;
+
+                $row.toggle(matchesSearch && matchesFilter);
+            });
+        }
     });
 </script>

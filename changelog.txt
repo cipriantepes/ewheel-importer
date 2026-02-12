@@ -1,5 +1,17 @@
 = Changelog =
 
+2.3.4 – 2026-02-12
+Fix – Stale Action Scheduler batch jobs from previous syncs no longer import extra products.
+Fix – Sync ID validation added at start of each batch to reject orphaned jobs.
+Fix – Starting a new sync now clears any pending batch jobs from previous syncs.
+
+2.3.3 – 2026-02-12
+Add – Model name mappings stored in database (WP option) instead of hardcoded constant.
+Add – New "Models" admin tab to view, edit, add, and delete model ID → scooter name mappings.
+Add – Inline editing with search/filter and unmapped model ID detection.
+Tweak – Default 84 model names auto-seeded on activation/upgrade.
+Dev – New ModelServiceTest with 12 tests for database-backed mapping.
+
 2.3.2 – 2026-02-11
 Add – Image alt text and title set from product name during import (SEO improvement).
 Add – Existing images backfill alt text on next sync if missing (no re-download needed).

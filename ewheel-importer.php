@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.3.2
+ * Version:           2.3.4
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.3.2');
+define('EWHEEL_IMPORTER_VERSION', '2.3.4');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -250,6 +250,16 @@ final class Ewheel_Importer
 
         // Product count
         add_action('wp_ajax_ewheel_get_product_count', [$this, 'ajax_get_product_count']);
+
+        // Model mapping AJAX handlers
+        add_action('wp_ajax_ewheel_get_model_mappings', [$this, 'ajax_get_model_mappings']);
+        add_action('wp_ajax_ewheel_save_model_mapping', [$this, 'ajax_save_model_mapping']);
+        add_action('wp_ajax_ewheel_delete_model_mapping', [$this, 'ajax_delete_model_mapping']);
+
+        // Seed model names on upgrade (no-op if already seeded)
+        add_action('admin_init', function () {
+            $this->container->get(\Trotibike\EwheelImporter\Service\ModelService::class)->seed_default_names();
+        });
 
         // Cron
         add_action('ewheel_importer_cron_sync', [$this, 'run_scheduled_sync']);
@@ -2498,6 +2508,126 @@ final class Ewheel_Importer
     }
 
     /**
+     * AJAX: Get all model ID => name mappings.
+     *
+     * @return void
+     */
+    public function ajax_get_model_mappings(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        try {
+            $model_service = $this->container->get(\Trotibike\EwheelImporter\Service\ModelService::class);
+
+            $all_names = $model_service->get_model_names();
+            $from_option = get_option(\Trotibike\EwheelImporter\Service\ModelService::OPTION_KEY, []);
+            $from_constant = \Trotibike\EwheelImporter\Service\ModelService::MODEL_NAMES;
+
+            // Get all existing model terms to identify which IDs have been seen
+            $all_terms = $model_service->get_all_models();
+            $known_model_ids = [];
+            foreach ($all_terms as $term) {
+                $ewheel_id = get_term_meta($term->term_id, '_ewheel_model_id', true);
+                if ($ewheel_id) {
+                    $known_model_ids[$ewheel_id] = $term->name;
+                }
+            }
+
+            // Count unmapped: model IDs seen as terms but NOT in the names map
+            $mapped_count = count($all_names);
+            $unmapped_ids = array_diff_key($known_model_ids, $all_names);
+            $unmapped_count = count($unmapped_ids);
+
+            wp_send_json_success([
+                'mappings'       => $all_names,
+                'from_option'    => is_array($from_option) ? $from_option : [],
+                'from_constant'  => $from_constant,
+                'mapped_count'   => $mapped_count,
+                'unmapped_count' => $unmapped_count,
+                'unmapped_ids'   => $unmapped_ids,
+            ]);
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX: Save a single model ID => name mapping.
+     *
+     * @return void
+     */
+    public function ajax_save_model_mapping(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $model_id = isset($_POST['model_id']) ? sanitize_text_field(wp_unslash($_POST['model_id'])) : '';
+        $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
+
+        if (empty($model_id)) {
+            wp_send_json_error(['message' => __('Model ID is required', 'ewheel-importer')]);
+        }
+
+        if (empty($name)) {
+            wp_send_json_error(['message' => __('Model name is required', 'ewheel-importer')]);
+        }
+
+        try {
+            $model_service = $this->container->get(\Trotibike\EwheelImporter\Service\ModelService::class);
+            $result = $model_service->save_model_name($model_id, $name);
+
+            if ($result) {
+                wp_send_json_success(['message' => __('Model mapping saved', 'ewheel-importer')]);
+            } else {
+                wp_send_json_error(['message' => __('Failed to save model mapping', 'ewheel-importer')]);
+            }
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX: Delete a model ID => name mapping.
+     *
+     * @return void
+     */
+    public function ajax_delete_model_mapping(): void
+    {
+        check_ajax_referer('ewheel_importer_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(['message' => __('Permission denied', 'ewheel-importer')]);
+        }
+
+        $model_id = isset($_POST['model_id']) ? sanitize_text_field(wp_unslash($_POST['model_id'])) : '';
+
+        if (empty($model_id)) {
+            wp_send_json_error(['message' => __('Model ID is required', 'ewheel-importer')]);
+        }
+
+        try {
+            $model_service = $this->container->get(\Trotibike\EwheelImporter\Service\ModelService::class);
+            $model_service->remove_model_name($model_id);
+
+            $fallback = \Trotibike\EwheelImporter\Service\ModelService::MODEL_NAMES[$model_id] ?? $model_id;
+
+            wp_send_json_success([
+                'message'  => __('Model mapping removed', 'ewheel-importer'),
+                'fallback' => $fallback,
+            ]);
+        } catch (\Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * Plugin activation.
      *
      * @return void
@@ -2505,6 +2635,9 @@ final class Ewheel_Importer
     public function activate(): void
     {
         \Trotibike\EwheelImporter\Database\SchemaInstaller::install();
+
+        // Seed model names from constant if the option doesn't exist yet
+        $this->container->get(\Trotibike\EwheelImporter\Service\ModelService::class)->seed_default_names();
 
         $frequency = $this->config->get_sync_frequency();
 
