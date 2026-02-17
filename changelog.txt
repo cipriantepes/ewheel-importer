@@ -1,5 +1,9 @@
 = Changelog =
 
+2.3.5 – 2026-02-17
+Fix – Product count now uses Active filter, matching what the sync actually imports.
+Fix – Dashboard count was showing ~2600 (all products) while sync only imports ~39 active ones.
+
 2.3.4 – 2026-02-12
 Fix – Stale Action Scheduler batch jobs from previous syncs no longer import extra products.
 Fix – Sync ID validation added at start of each batch to reject orphaned jobs.
