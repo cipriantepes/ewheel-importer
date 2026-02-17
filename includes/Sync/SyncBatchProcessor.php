@@ -340,31 +340,6 @@ class SyncBatchProcessor
 
             PersistentLogger::info("WooSync result: created={$batch_result['created']}, updated={$batch_result['updated']}, errors={$batch_result['errors']}", null, $sync_id, $profile_id);
 
-            // Collect API references for lifecycle reconciliation (full syncs only)
-            if (empty($since)) {
-                $refs = [];
-                foreach ($products as $p) {
-                    $p_lower = array_change_key_case($p, CASE_LOWER);
-                    $ref = $p_lower['reference'] ?? '';
-                    if (!empty($ref)) {
-                        $refs[] = $ref;
-                    }
-                    // Also collect variant references
-                    foreach (($p_lower['variants'] ?? []) as $v) {
-                        $v_lower = array_change_key_case($v, CASE_LOWER);
-                        $vref = $v_lower['reference'] ?? '';
-                        if (!empty($vref)) {
-                            $refs[] = $vref;
-                        }
-                    }
-                }
-                if (!empty($refs)) {
-                    $existing_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
-                    $existing_refs = array_merge($existing_refs, $refs);
-                    update_option('ewheel_sync_active_refs_' . $sync_id, $existing_refs, false);
-                }
-            }
-
             // Update progress with detailed counts
             $this->update_progress($sync_id, $page, count($products), $batch_result, $profile_id);
 
@@ -510,10 +485,6 @@ class SyncBatchProcessor
             return;
         }
 
-        $active_refs = get_option('ewheel_sync_active_refs_' . $sync_id, []);
-        $sync_type = $status['type'] ?? 'full';
-        $is_full_sync = $sync_type === 'full' && empty($status['limit']);
-
         PersistentLogger::info('Starting stock synchronization...', null, $sync_id, $profile_id);
 
         // Warm lookup cache for stock sync SKU lookups
@@ -522,13 +493,7 @@ class SyncBatchProcessor
         $this->woo_sync->set_lookup_cache($lookup_cache);
 
         try {
-            // For partial syncs, only update stock for the synced products
-            // For full syncs without a limit, fetch all stock from API
-            if ($is_full_sync) {
-                $stock_result = $this->woo_sync->sync_stock();
-            } else {
-                $stock_result = $this->woo_sync->sync_stock($active_refs);
-            }
+            $stock_result = $this->woo_sync->sync_stock();
 
             PersistentLogger::success(
                 sprintf('Stock sync complete: %d updated, %d skipped',
@@ -542,24 +507,9 @@ class SyncBatchProcessor
             );
         }
 
-        // Run lifecycle reconciliation for full syncs only
-        if ($is_full_sync && !empty($active_refs)) {
-            try {
-                $reconcile_result = $this->woo_sync->reconcile_products($active_refs);
-                PersistentLogger::info(
-                    sprintf('Lifecycle reconciliation: %d unpublished, %d checked',
-                        $reconcile_result['unpublished'], $reconcile_result['checked']),
-                    null, $sync_id, $profile_id
-                );
-            } catch (\Throwable $e) {
-                PersistentLogger::error(
-                    'Lifecycle reconciliation failed: ' . $e->getMessage(),
-                    null, $sync_id, $profile_id
-                );
-            }
-        }
-        // Clean up temporary option
-        delete_option('ewheel_sync_active_refs_' . $sync_id);
+        // Note: lifecycle reconciliation is disabled because the sync uses Active=1
+        // filter — we only see a subset of the catalog. Reconciling against a filtered
+        // subset would incorrectly unpublish inactive-but-still-sellable products.
 
         // Now mark as fully completed
         $this->complete_sync($sync_id, $profile_id);
