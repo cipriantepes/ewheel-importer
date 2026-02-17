@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.4.0
+ * Version:           2.4.1
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.4.0');
+define('EWHEEL_IMPORTER_VERSION', '2.4.1');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -994,6 +994,22 @@ final class Ewheel_Importer
             'batch_size' => $status['batch_size'] ?? 10,
             'failure_count' => $status['failure_count'] ?? 0,
         ];
+
+        // Nudge Action Scheduler if sync appears stalled.
+        // On shared hosting, WP Cron is lazy (triggered by page visits).
+        // The admin polling AJAX doesn't trigger cron, so pending batch jobs
+        // can sit in the queue. This nudge forces AS to check for pending jobs.
+        if ($is_running && !empty($status['last_update'])) {
+            $stale_seconds = time() - (int) $status['last_update'];
+            // If no progress for 30+ seconds, nudge AS to run pending jobs
+            if ($stale_seconds >= 30 && class_exists('ActionScheduler_QueueRunner')) {
+                try {
+                    \ActionScheduler_QueueRunner::instance()->run();
+                } catch (\Throwable $e) {
+                    // Silently ignore — this is just a nudge
+                }
+            }
+        }
 
         // Add human-readable message
         if ($is_running) {
