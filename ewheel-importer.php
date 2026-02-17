@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.4.2
+ * Version:           2.4.3
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants.
  */
-define('EWHEEL_IMPORTER_VERSION', '2.4.2');
+define('EWHEEL_IMPORTER_VERSION', '2.4.3');
 define('EWHEEL_IMPORTER_FILE', __FILE__);
 define('EWHEEL_IMPORTER_PATH', plugin_dir_path(__FILE__));
 define('EWHEEL_IMPORTER_URL', plugin_dir_url(__FILE__));
@@ -1001,12 +1001,51 @@ final class Ewheel_Importer
         // can sit in the queue. This nudge forces AS to check for pending jobs.
         if ($is_running && !empty($status['last_update'])) {
             $stale_seconds = time() - (int) $status['last_update'];
-            // If no progress for 30+ seconds, nudge AS to run pending jobs
+
             if ($stale_seconds >= 30 && class_exists('ActionScheduler_QueueRunner')) {
                 try {
                     \ActionScheduler_QueueRunner::instance()->run();
                 } catch (\Throwable $e) {
                     // Silently ignore — this is just a nudge
+                }
+            }
+
+            // Stall recovery: if no progress for 120+ seconds, the AS job likely
+            // died mid-execution (PHP timeout on shared hosting). Clear stuck jobs
+            // and reschedule from the current position.
+            if ($stale_seconds >= 120 && function_exists('as_unschedule_all_actions')) {
+                $sync_id = $status['id'] ?? '';
+                $page = $status['page'] ?? 0;
+                $since = $status['since'] ?? '';
+                $offset = $status['offset'] ?? 0;
+
+                if ($sync_id) {
+                    // Clear any stuck/pending batch jobs
+                    as_unschedule_all_actions('ewheel_importer_process_batch');
+
+                    // Reschedule from where it stalled
+                    as_schedule_single_action(
+                        time() + 2,
+                        'ewheel_importer_process_batch',
+                        [
+                            'page' => $page,
+                            'sync_id' => $sync_id,
+                            'since' => $since,
+                            'profile_id' => $profile_id,
+                            'offset' => $offset,
+                        ]
+                    );
+
+                    // Update last_update to prevent immediate re-trigger
+                    $status['last_update'] = time();
+                    update_option($status_key, $status, false);
+
+                    \Trotibike\EwheelImporter\Log\PersistentLogger::warning(
+                        sprintf('Stall recovery: rescheduled batch at page %d, offset %d (stalled %ds)', $page, $offset, $stale_seconds),
+                        null,
+                        $sync_id,
+                        $profile_id
+                    );
                 }
             }
         }

@@ -1,5 +1,11 @@
 = Changelog =
 
+2.4.3 – 2026-02-17
+Fix – PHP Fatal "Maximum execution time exceeded" during image processing (Imagick) when creating products.
+Fix – Sub-batch size reduced from 10 to 5 products to stay within 60-second PHP timeout on shared hosting.
+Add – Stall recovery: if sync has no progress for 120+ seconds (PHP timeout killed the job), auto-reschedules from last position.
+Add – Batch position (page + offset) saved before processing so recovery knows exactly where to resume.
+
 2.4.2 – 2026-02-17
 Fix – Sync stopping at 99 products instead of processing all ~2600.
 Fix – The ewheel API sometimes returns fewer than 50 products per page (e.g. 49) even when more pages exist.

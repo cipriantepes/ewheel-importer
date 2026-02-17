@@ -30,7 +30,7 @@ class SyncBatchProcessor
      * Processing sub-batch size — how many products to process per
      * Action Scheduler tick. Keeps translation load manageable.
      */
-    private const SUB_BATCH_SIZE = 10;
+    private const SUB_BATCH_SIZE = 5;
 
     /**
      * Default batch size (for adaptive retry on failure).
@@ -333,6 +333,9 @@ class SyncBatchProcessor
                 PersistentLogger::info("Limit reached. Truncating batch to $remaining items.", null, $sync_id, $profile_id);
             }
 
+            // Save current position BEFORE processing so stall recovery knows where we are
+            $this->save_position($sync_id, $profile_id, $page, $offset);
+
             PersistentLogger::info("Calling woo_sync->process_ewheel_products_batch with " . count($products) . " products", null, $sync_id, $profile_id);
 
             // Process products with profile configuration
@@ -409,6 +412,23 @@ class SyncBatchProcessor
      * Update sync progress.
      *
      * @param string     $sync_id      Unique sync ID.
+     * @param string   $sync_id    Unique sync ID.
+     * @param int|null $profile_id Profile ID.
+     * @param int      $page       Current page.
+     * @param int      $offset     Current offset within page.
+     */
+    private function save_position(string $sync_id, ?int $profile_id, int $page, int $offset): void
+    {
+        $status = get_option($this->get_status_key($profile_id), []);
+        if (isset($status['id']) && $status['id'] === $sync_id) {
+            $status['page'] = $page;
+            $status['offset'] = $offset;
+            $status['last_update'] = time();
+            update_option($this->get_status_key($profile_id), $status);
+        }
+    }
+
+    /**
      * @param int        $page         Current page.
      * @param int        $count        Items processed in this batch.
      * @param array|null $batch_result Optional batch result with created/updated/failed counts.
