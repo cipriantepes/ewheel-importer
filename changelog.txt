@@ -1,5 +1,11 @@
 = Changelog =
 
+2.3.7 – 2026-02-17
+Fix – Translation failures (HTTP 500) when processing 50 products per batch — too many strings for OpenRouter.
+Add – Sub-batching: API pages fetched at 50 (reliable pagination), processed 10 at a time (manageable translation load).
+Tweak – 5-second delay between sub-batches, 15-second delay between API pages for shared hosting.
+Fix – Failure retry now preserves sub-batch offset (no duplicate processing on retry).
+
 2.3.6 – 2026-02-17
 Fix – API PageSize fixed to 50 (matching API default) for reliable pagination during sync.
 Fix – Small PageSize (10) caused the ewheel API to return inconsistent product counts (59 one run, 39 the next).

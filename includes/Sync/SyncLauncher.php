@@ -251,6 +251,7 @@ class SyncLauncher
                 'sync_id' => $sync_id,
                 'since' => '',
                 'profile_id' => $profile_id,
+                'offset' => 0,
             ]
         );
 
@@ -329,6 +330,7 @@ class SyncLauncher
                 'sync_id' => $sync_id,
                 'since' => $since ?: '',
                 'profile_id' => $profile_id,
+                'offset' => 0,
             ]
         );
 
@@ -396,6 +398,7 @@ class SyncLauncher
                 'sync_id' => $sync_id,
                 'since' => $since,
                 'profile_id' => $profile_id,
+                'offset' => 0,
             ]
         );
 

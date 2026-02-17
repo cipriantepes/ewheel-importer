@@ -27,6 +27,12 @@ class SyncBatchProcessor
     private const API_PAGE_SIZE = 50;
 
     /**
+     * Processing sub-batch size — how many products to process per
+     * Action Scheduler tick. Keeps translation load manageable.
+     */
+    private const SUB_BATCH_SIZE = 10;
+
+    /**
      * Default batch size (for adaptive retry on failure).
      */
     private const DEFAULT_BATCH_SIZE = 50;
@@ -150,9 +156,10 @@ class SyncBatchProcessor
      * @param string   $sync_id    Unique ID for this sync session.
      * @param string   $since      Optional date string for incremental sync.
      * @param int|null $profile_id Profile ID (null for default).
+     * @param int      $offset     Offset within the API page (for sub-batching).
      * @return void
      */
-    public function process_batch(int $page, string $sync_id, string $since = '', ?int $profile_id = null): void
+    public function process_batch(int $page, string $sync_id, string $since = '', ?int $profile_id = null, int $offset = 0): void
     {
         // Defer expensive term/comment counting until batch completes
         wp_defer_term_counting(true);
@@ -169,7 +176,7 @@ class SyncBatchProcessor
 
             $profile = $profile_config->get_profile();
 
-            PersistentLogger::info("Batch start - page: {$page}, sync_id: {$sync_id}, profile_id: " . ($profile_id ?: 'none'), null, $sync_id, $profile_id);
+            PersistentLogger::info("Batch start - page: {$page}, offset: {$offset}, sync_id: {$sync_id}, profile_id: " . ($profile_id ?: 'none'), null, $sync_id, $profile_id);
             PersistentLogger::info("Profile: " . $profile_config->get_profile_name() . ", variation_mode: " . $profile_config->get_variation_mode(), null, $sync_id, $profile_id);
 
             // Check status for limit and adaptive batch size
@@ -301,12 +308,23 @@ class SyncBatchProcessor
                 return;
             }
 
+            // Sub-batch: slice products from offset
+            $api_total = count($products);
+            $products = array_slice($products, $offset, self::SUB_BATCH_SIZE);
+
             PersistentLogger::info(
-                sprintf('Processing batch for profile "%s". Page: %d. Products found: %d', $profile->get_name(), $page, count($products)),
+                sprintf('Processing batch for profile "%s". Page: %d, offset: %d. Sub-batch: %d of %d API products', $profile->get_name(), $page, $offset, count($products), $api_total),
                 null,
                 $sync_id,
                 $profile_id
             );
+
+            if (empty($products)) {
+                // Offset past end of page — move to next page
+                PersistentLogger::info("Offset past end of page, advancing to next page", null, $sync_id, $profile_id);
+                $this->schedule_next_page($page, $sync_id, $since, $profile_id, $api_total);
+                return;
+            }
 
             // Apply limit to current batch if needed
             if ($limit > 0 && ($processed + count($products)) > $limit) {
@@ -355,9 +373,9 @@ class SyncBatchProcessor
                 $this->update_batch_metrics($sync_id, $profile_id, $batch_size, 0);
             }
 
-            // Schedule next batch if we got a full page AND limit not reached
             $current_processed = count($products);
             $total_processed = $processed + $current_processed;
+            $next_offset = $offset + self::SUB_BATCH_SIZE;
 
             // SAFETY: Prevent infinite loops if API is misbehaving
             if ($page > 500) {
@@ -369,25 +387,31 @@ class SyncBatchProcessor
             // Memory cleanup before scheduling next batch
             $this->cleanup_batch_memory();
 
-            if ($current_processed >= self::API_PAGE_SIZE && ($limit === 0 || $total_processed < $limit)) {
-                as_schedule_single_action(
-                    time() + 15, // 15 seconds delay for shared hosting compatibility
-                    'ewheel_importer_process_batch',
-                    [
-                        'page' => $page + 1,
-                        'sync_id' => $sync_id,
-                        'since' => $since,
-                        'profile_id' => $profile_id,
-                    ]
-                );
-            } else {
+            // Check if limit reached
+            if ($limit > 0 && $total_processed >= $limit) {
                 PersistentLogger::success(
-                    sprintf('Sync Finished for profile "%s". Total processed: %d', $profile->get_name(), $total_processed),
+                    sprintf('Sync Finished (limit reached) for profile "%s". Total processed: %d', $profile->get_name(), $total_processed),
                     null,
                     $sync_id,
                     $profile_id
                 );
                 $this->finish_sync($sync_id, $profile_id);
+            } elseif ($next_offset < $api_total) {
+                // More products on this API page — schedule next sub-batch
+                as_schedule_single_action(
+                    time() + 5, // Short delay between sub-batches (same API page)
+                    'ewheel_importer_process_batch',
+                    [
+                        'page' => $page,
+                        'sync_id' => $sync_id,
+                        'since' => $since,
+                        'profile_id' => $profile_id,
+                        'offset' => $next_offset,
+                    ]
+                );
+            } else {
+                // All products on this page processed — check if there's a next page
+                $this->schedule_next_page($page, $sync_id, $since, $profile_id, $api_total);
             }
 
         } catch (\Exception $e) {
@@ -398,7 +422,7 @@ class SyncBatchProcessor
             $failure_count = isset($status['failure_count']) ? (int) $status['failure_count'] : 0;
 
             // Use adaptive retry instead of immediate failure
-            $this->handle_batch_failure($sync_id, $profile_id, $page, $batch_size, $failure_count, $e, $since);
+            $this->handle_batch_failure($sync_id, $profile_id, $page, $batch_size, $failure_count, $e, $since, $offset);
         } finally {
             // Re-enable term/comment counting
             wp_defer_term_counting(false);
@@ -722,6 +746,59 @@ class SyncBatchProcessor
     }
 
     /**
+     * Schedule the next API page or finish sync.
+     *
+     * @param int      $page       Current page number.
+     * @param string   $sync_id    Unique sync ID.
+     * @param string   $since      Incremental sync date filter.
+     * @param int|null $profile_id Profile ID.
+     * @param int      $api_total  Number of products returned by the API for the current page.
+     */
+    private function schedule_next_page(int $page, string $sync_id, string $since, ?int $profile_id, int $api_total): void
+    {
+        if ($api_total >= self::API_PAGE_SIZE) {
+            // Full page returned — there are likely more pages
+            PersistentLogger::info(
+                sprintf('Page %d complete (%d products). Scheduling page %d...', $page, $api_total, $page + 1),
+                null,
+                $sync_id,
+                $profile_id
+            );
+
+            as_schedule_single_action(
+                time() + 15, // Longer delay between API pages (new HTTP request)
+                'ewheel_importer_process_batch',
+                [
+                    'page' => $page + 1,
+                    'sync_id' => $sync_id,
+                    'since' => $since,
+                    'profile_id' => $profile_id,
+                    'offset' => 0,
+                ]
+            );
+        } else {
+            // Partial page — this was the last page
+            $status = get_option($this->get_status_key($profile_id), []);
+            $total = $status['processed'] ?? 0;
+            $profile_name = 'Default';
+            if ($profile_id) {
+                $profile = $this->profile_repository->find($profile_id);
+                if ($profile) {
+                    $profile_name = $profile->get_name();
+                }
+            }
+
+            PersistentLogger::success(
+                sprintf('Sync finished for profile "%s". Total processed: %d', $profile_name, $total),
+                null,
+                $sync_id,
+                $profile_id
+            );
+            $this->finish_sync($sync_id, $profile_id);
+        }
+    }
+
+    /**
      * Handle batch failure with adaptive retry.
      *
      * Reduces batch size and reschedules the same page for retry.
@@ -743,7 +820,8 @@ class SyncBatchProcessor
         int $batch_size,
         int $failure_count,
         \Exception $e,
-        string $since
+        string $since,
+        int $offset = 0
     ): void {
         $failure_count++;
         $new_batch_size = max(self::MIN_BATCH_SIZE, (int) ceil($batch_size / 2));
@@ -789,7 +867,7 @@ class SyncBatchProcessor
         // Update status with new batch size and failure count
         $this->update_batch_metrics($sync_id, $profile_id, $new_batch_size, $failure_count);
 
-        // Reschedule same page with smaller batch size
+        // Reschedule same page/offset with smaller batch size
         as_schedule_single_action(
             time() + 10, // Longer delay after failure (10 seconds)
             'ewheel_importer_process_batch',
@@ -798,6 +876,7 @@ class SyncBatchProcessor
                 'sync_id' => $sync_id,
                 'since' => $since,
                 'profile_id' => $profile_id,
+                'offset' => $offset, // Resume from same offset
             ]
         );
 
