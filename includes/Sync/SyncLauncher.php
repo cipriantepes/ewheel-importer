@@ -236,7 +236,7 @@ class SyncLauncher
                 'limit' => $limit,
                 'type' => 'full',
                 'profile_id' => $profile_id,
-                'batch_size' => 10,
+                'batch_size' => 50,
                 'failure_count' => 0,
             ],
             false // Don't autoload
@@ -314,7 +314,7 @@ class SyncLauncher
                 'type' => 'incremental',
                 'since' => $since,
                 'profile_id' => $profile_id,
-                'batch_size' => 10,
+                'batch_size' => 50,
                 'failure_count' => 0,
             ],
             false // Don't autoload

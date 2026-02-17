@@ -1,5 +1,10 @@
 = Changelog =
 
+2.3.6 – 2026-02-17
+Fix – API PageSize fixed to 50 (matching API default) for reliable pagination during sync.
+Fix – Small PageSize (10) caused the ewheel API to return inconsistent product counts (59 one run, 39 the next).
+Revert – Product count reverted to show all products (Active filter was not the issue).
+
 2.3.5 – 2026-02-17
 Fix – Product count now uses Active filter, matching what the sync actually imports.
 Fix – Dashboard count was showing ~2600 (all products) while sync only imports ~39 active ones.

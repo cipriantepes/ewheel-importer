@@ -21,10 +21,15 @@ class SyncBatchProcessor
 {
 
     /**
-     * Default batch size.
-     * WP All Import uses 20, we use 5 for shared hosting compatibility.
+     * API page size — must match the ewheel API's expected page size
+     * for reliable pagination. Smaller values cause inconsistent results.
      */
-    private const DEFAULT_BATCH_SIZE = 5;
+    private const API_PAGE_SIZE = 50;
+
+    /**
+     * Default batch size (for adaptive retry on failure).
+     */
+    private const DEFAULT_BATCH_SIZE = 50;
 
     /**
      * Minimum batch size before giving up.
@@ -277,10 +282,10 @@ class SyncBatchProcessor
                 $profile_id
             );
 
-            PersistentLogger::info("Calling API get_products page={$page}, batch_size={$batch_size}", null, $sync_id, $profile_id);
+            PersistentLogger::info("Calling API get_products page={$page}, page_size=" . self::API_PAGE_SIZE, null, $sync_id, $profile_id);
 
-            // Fetch products for this page with adaptive batch size
-            $products = $this->api_client->get_products($page, $batch_size, $api_filters);
+            // Always use fixed API page size for reliable pagination
+            $products = $this->api_client->get_products($page, self::API_PAGE_SIZE, $api_filters);
 
             PersistentLogger::info("API returned " . count($products) . " products", null, $sync_id, $profile_id);
 
@@ -364,7 +369,7 @@ class SyncBatchProcessor
             // Memory cleanup before scheduling next batch
             $this->cleanup_batch_memory();
 
-            if ($current_processed >= $batch_size && ($limit === 0 || $total_processed < $limit)) {
+            if ($current_processed >= self::API_PAGE_SIZE && ($limit === 0 || $total_processed < $limit)) {
                 as_schedule_single_action(
                     time() + 15, // 15 seconds delay for shared hosting compatibility
                     'ewheel_importer_process_batch',
