@@ -1,5 +1,9 @@
 = Changelog =
 
+2.3.8 – 2026-02-17
+Fix – Family/subfamily category creation no longer fails when API returns a product description in the family field.
+Fix – Length guard (200 chars max) on family/subfamily names prevents bad API data from creating garbage categories.
+
 2.3.7 – 2026-02-17
 Fix – Translation failures (HTTP 500) when processing 50 products per batch — too many strings for OpenRouter.
 Add – Sub-batching: API pages fetched at 50 (reliable pagination), processed 10 at a time (manageable translation load).

@@ -1244,10 +1244,14 @@ class WooCommerceSync
      */
     private function assign_family_categories(int $product_id, string $family, string $subfamily): void
     {
+        // Guard: real family/subfamily names are short (e.g. "Accesorios", "Repuestos").
+        // If longer than 200 chars, it's bad API data (e.g. product description in the field).
+        $max_len = 200;
+
         $term_ids = [];
         $family_term_id = null;
 
-        if (!empty($family)) {
+        if (!empty($family) && mb_strlen($family) <= $max_len) {
             $translated = $this->translator->translate($family, 'es');
             $family_name = !empty($translated) ? $translated : $family;
 
@@ -1255,9 +1259,11 @@ class WooCommerceSync
             if ($family_term_id) {
                 $term_ids[] = $family_term_id;
             }
+        } elseif (!empty($family) && mb_strlen($family) > $max_len) {
+            error_log('[Ewheel Family] Skipping family — value too long (' . mb_strlen($family) . ' chars), likely bad API data');
         }
 
-        if (!empty($subfamily)) {
+        if (!empty($subfamily) && mb_strlen($subfamily) <= $max_len) {
             $translated = $this->translator->translate($subfamily, 'es');
             $subfamily_name = !empty($translated) ? $translated : $subfamily;
 
@@ -1266,6 +1272,8 @@ class WooCommerceSync
             if ($subfamily_term_id) {
                 $term_ids[] = $subfamily_term_id;
             }
+        } elseif (!empty($subfamily) && mb_strlen($subfamily) > $max_len) {
+            error_log('[Ewheel Family] Skipping subfamily — value too long (' . mb_strlen($subfamily) . ' chars), likely bad API data');
         }
 
         if (!empty($term_ids)) {
