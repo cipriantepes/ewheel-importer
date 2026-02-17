@@ -1,5 +1,10 @@
 = Changelog =
 
+2.4.2 – 2026-02-17
+Fix – Sync stopping at 99 products instead of processing all ~2600.
+Fix – The ewheel API sometimes returns fewer than 50 products per page (e.g. 49) even when more pages exist.
+Fix – Old logic: "partial page = last page" → stopped early. New logic: always fetch next page, stop only on empty page.
+
 2.4.1 – 2026-02-17
 Fix – Sync stalling between sub-batches on shared hosting (Action Scheduler jobs not picked up).
 Add – Admin polling now nudges Action Scheduler to process pending jobs when sync stalls for 30+ seconds.

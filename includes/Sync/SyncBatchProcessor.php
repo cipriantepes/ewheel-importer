@@ -706,46 +706,28 @@ class SyncBatchProcessor
      */
     private function schedule_next_page(int $page, string $sync_id, string $since, ?int $profile_id, int $api_total): void
     {
-        if ($api_total >= self::API_PAGE_SIZE) {
-            // Full page returned — there are likely more pages
-            PersistentLogger::info(
-                sprintf('Page %d complete (%d products). Scheduling page %d...', $page, $api_total, $page + 1),
-                null,
-                $sync_id,
-                $profile_id
-            );
+        // Always schedule the next page. The ewheel API sometimes returns fewer
+        // than PageSize products on a page even when more pages exist (e.g. 49
+        // instead of 50). The empty-page check at the top of process_batch()
+        // handles termination when the API returns 0 products.
+        PersistentLogger::info(
+            sprintf('Page %d complete (%d products). Scheduling page %d...', $page, $api_total, $page + 1),
+            null,
+            $sync_id,
+            $profile_id
+        );
 
-            as_schedule_single_action(
-                time() + 15, // Longer delay between API pages (new HTTP request)
-                'ewheel_importer_process_batch',
-                [
-                    'page' => $page + 1,
-                    'sync_id' => $sync_id,
-                    'since' => $since,
-                    'profile_id' => $profile_id,
-                    'offset' => 0,
-                ]
-            );
-        } else {
-            // Partial page — this was the last page
-            $status = get_option($this->get_status_key($profile_id), []);
-            $total = $status['processed'] ?? 0;
-            $profile_name = 'Default';
-            if ($profile_id) {
-                $profile = $this->profile_repository->find($profile_id);
-                if ($profile) {
-                    $profile_name = $profile->get_name();
-                }
-            }
-
-            PersistentLogger::success(
-                sprintf('Sync finished for profile "%s". Total processed: %d', $profile_name, $total),
-                null,
-                $sync_id,
-                $profile_id
-            );
-            $this->finish_sync($sync_id, $profile_id);
-        }
+        as_schedule_single_action(
+            time() + 15, // Delay between API pages (new HTTP request)
+            'ewheel_importer_process_batch',
+            [
+                'page' => $page + 1,
+                'sync_id' => $sync_id,
+                'since' => $since,
+                'profile_id' => $profile_id,
+                'offset' => 0,
+            ]
+        );
     }
 
     /**
