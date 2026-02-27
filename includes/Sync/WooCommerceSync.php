@@ -1248,6 +1248,17 @@ class WooCommerceSync
         // If longer than 200 chars, it's bad API data (e.g. product description in the field).
         $max_len = 200;
 
+        // Guard: skip numeric family/subfamily values (tire widths like "2.5 / 2,5",
+        // wheel diameters like "20 / 20"). These come from the ewheel API pipe data
+        // for tire/wheel products and don't map to meaningful category names.
+        // The products are already categorized under Anvelopă, Cameră, Roată, etc.
+        if (preg_match('/^\d/', $family)) {
+            $family = '';
+        }
+        if (preg_match('/^\d/', $subfamily)) {
+            $subfamily = '';
+        }
+
         $term_ids = [];
         $family_term_id = null;
 
