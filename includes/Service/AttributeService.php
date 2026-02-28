@@ -21,6 +21,18 @@ class AttributeService
      */
     public function set_product_attributes(\WC_Product $product, array $attributes): void
     {
+        // Preserve existing global taxonomy attributes (pa_*) that were added
+        // outside the sync (e.g., pa_tip-componenta, pa_tensiune-v from SEO
+        // extraction). The ewheel API only sends product-level custom attributes,
+        // so taxonomy attributes would be wiped without this merge.
+        $existing = $product->get_attributes();
+        $preserved = [];
+        foreach ($existing as $key => $attr) {
+            if ($attr->is_taxonomy()) {
+                $preserved[$key] = $attr;
+            }
+        }
+
         $wc_attributes = [];
 
         foreach ($attributes as $attr) {
@@ -37,9 +49,10 @@ class AttributeService
             $attribute->set_visible($attr['visible'] ?? true);
             $attribute->set_variation($attr['variation'] ?? false);
 
-            $wc_attributes[] = $attribute;
+            $wc_attributes[$name] = $attribute;
         }
 
-        $product->set_attributes($wc_attributes);
+        // Merge: preserved taxonomy attrs + new API attrs (API wins on conflict)
+        $product->set_attributes($preserved + $wc_attributes);
     }
 }

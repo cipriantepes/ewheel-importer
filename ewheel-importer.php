@@ -3,7 +3,7 @@
  * Plugin Name: Ewheel Importer
  * Plugin URI: https://trotibike.ro
  * Description: Import products from ewheel.es API into WooCommerce with automatic translation and price conversion.
- * Version:           2.4.4
+ * Version:           2.4.5
  * Author:            Trotibike
  * Author URI:        https://trotibike.ro
  * License:           GPL-2.0-or-later
